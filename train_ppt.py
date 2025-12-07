@@ -3,24 +3,20 @@ import gc
 import logging
 import math
 import os
-import json
 import shutil
-from pathlib import Path
 
 import accelerate
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torch.utils.checkpoint
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from huggingface_hub import create_repo, upload_folder
 from omegaconf import OmegaConf
 from packaging import version
 from PIL import Image
-from torchvision import transforms
+from safetensors.torch import load_model
 from tqdm.auto import tqdm
 from transformers import PretrainedConfig
 
@@ -35,8 +31,12 @@ from powerpaint.datasets.FSC147 import FSCDataset
 from powerpaint.models import UNet2DConditionModel
 from powerpaint.pipelines import StableDiffusionInpaintPipeline
 
+
 if is_wandb_available():
     import wandb
+    from dotenv import load_dotenv
+    load_dotenv()
+    wandb.login()
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.27.0.dev0")
@@ -93,7 +93,7 @@ def log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtyp
                     tradeoff=p.tradeoff,
                     image=validation_image,
                     mask=validation_mask,
-                    num_inference_steps=20,
+                    num_inference_steps=45,
                 ).images[0]
             image_logs.append(image)
             image_grid.paste(image, (validation_image.size[0] * (i + 1), 0))
@@ -134,9 +134,9 @@ def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: st
         from transformers import CLIPTextModel
         return CLIPTextModel
 
-    elif model_class == "RobertaSeriesModelWithTransformation":
-        from diffusers.pipelines.alt_diffusion.modeling_roberta_series import RobertaSeriesModelWithTransformation
-        return RobertaSeriesModelWithTransformation
+    # elif model_class == "RobertaSeriesModelWithTransformation":
+    #     from diffusers.pipelines.alt_diffusion.modeling_roberta_series import RobertaSeriesModelWithTransformation
+    #     return RobertaSeriesModelWithTransformation
 
     elif model_class == "T5EncoderModel":
         from transformers import T5EncoderModel
@@ -224,8 +224,8 @@ def parse_args():
     parser.add_argument(
         "--train_batch_size",
         type=int,
-        default=None,
-        required=True,
+        default=16,
+        required=False,
         help="Batch size (per device) for the training dataloader.",
     )
     parser.add_argument("--num_train_epochs", type=int, default=100)
@@ -350,6 +350,7 @@ def parse_args():
             ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
         ),
     )
+    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
@@ -409,7 +410,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-
+    print(args.train_data.datasets.data_path)
+    print(type(args.train_data.datasets.data_path))
     if args.non_ema_revision is not None:
         deprecate(
             "non_ema_revision!=None",
@@ -474,14 +476,8 @@ def main():
     pipe = StableDiffusionInpaintPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         unet=UNet2DConditionModel.from_pretrained(
-            args.ppt1_model_path,
+            args.pretrained_model_name_or_path,
             subfolder="unet",
-            torch_dtype=weight_dtype,
-            local_files_only=True,
-        ),
-        text_encoder=text_encoder_cls.from_pretrained(
-            args.ppt1_model_path,
-            subfolder="text_encoder",
             torch_dtype=weight_dtype,
             local_files_only=True,
         ),
@@ -489,6 +485,9 @@ def main():
         variant=args.variant,
         local_files_only=True,
     )
+    #loading pre-trained weights
+    load_model(pipe.unet, os.path.join(args.ppt1_model_path, "unet/unet.safetensors"), strict=False)
+    load_model(pipe.text_encoder, os.path.join(args.ppt1_model_path, "text_encoder/text_encoder.safetensors"),strict=False )
 
     # IMPORTANT:
     # 1. Add tokens in the same order and placeholder with training
@@ -612,7 +611,7 @@ def main():
     )
 
     # preparing datasets and dataloader for training.
-    train_dataset = FSCDataset(args.train_data.datasets.data_path, pipeline=pipe, task_prompt=args.task_prompt, resolution=args.train_data.resolution)
+    train_dataset = FSCDataset(args.train_data.datasets.data_path, transforms=None, pipeline=pipe, task_prompt=args.task_prompt, resolution=args.train_data.resolution)
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -649,7 +648,8 @@ def main():
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
-    args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+    if args.num_train_epochs is None:
+        args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
 
     # We need to initialize the trackers we use, and also store our configuration.
@@ -758,7 +758,12 @@ def main():
                 model_input = torch.cat([noisy_latents, mask, mask_image_latents], dim=1)
 
                 # Get the text embedding for conditioning unet, (bs, 77, 768)
-                encoder_hidden_states = text_encoder(batch["input_ids"], return_dict=False)[0]
+                encoder_hidden_statesA = text_encoder(batch["input_idsA"], return_dict=False)[0]
+                encoder_hidden_statesB = text_encoder(batch["input_idsB"], return_dict=False)[0]
+                tradeoff = batch["tradeoff"].unsqueeze(-1)
+                encoder_hidden_states = (
+                    tradeoff[:, 0:1, :] * encoder_hidden_statesA + tradeoff[:, 1:, :] * encoder_hidden_statesB.detach()
+                )
                 encoder_hidden_states = encoder_hidden_states.to(accelerator.unwrap_model(unet).dtype)
 
                 # Get the target for loss depending on the prediction type

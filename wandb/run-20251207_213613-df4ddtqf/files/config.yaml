@@ -1,0 +1,147 @@
+_wandb:
+    value:
+        cli_version: 0.23.1
+        e:
+            ow51y3u9fv73iiej47u3ck7ffgjbssjx:
+                args:
+                    - --config
+                    - configs/finetune_Ploc.yaml
+                codePath: train_ppt.py
+                codePathLocal: train_ppt.py
+                cpu_count: 16
+                cpu_count_logical: 32
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "1967846088704"
+                        used: "735512932352"
+                email: hachit1k29@gmail.com
+                executable: /home/anaconda3/envs/powerpaint/bin/python
+                git:
+                    commit: 8011986fa7f56a7a6b3d8ad540de43d27aa526f4
+                    remote: git@github.com:HaSon47/PowerPaint.git
+                gpu: NVIDIA RTX A6000
+                gpu_count: 3
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-3a29cbc4-b098-ba60-bce7-ddaa99712d7c
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-9df90f3b-42be-4f1c-b6c6-88fe903abf47
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-0782dfd7-a711-f86a-8c5d-b9545f1c7933
+                host: 67e2f83220e1
+                memory:
+                    total: "134909706240"
+                os: Linux-5.15.0-53-generic-x86_64-with-glibc2.36
+                program: train_ppt.py
+                python: CPython 3.9.23
+                root: /home/hachi/obj-ins/PowerPaint
+                startedAt: "2025-12-07T21:36:13.150868Z"
+                writerId: ow51y3u9fv73iiej47u3ck7ffgjbssjx
+        m: []
+        python_version: 3.9.23
+        t:
+            "1":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 71
+                - 83
+                - 105
+            "2":
+                - 1
+                - 11
+                - 41
+                - 49
+                - 71
+                - 83
+                - 105
+            "4": 3.9.23
+            "5": 0.23.1
+            "6": 4.28.0
+            "12": 0.23.1
+            "13": linux-x86_64
+adam_beta1:
+    value: 0.9
+adam_beta2:
+    value: 0.999
+adam_epsilon:
+    value: 1e-08
+adam_weight_decay:
+    value: 0.01
+allow_tf32:
+    value: false
+center_crop:
+    value: false
+checkpointing_steps:
+    value: 500
+checkpoints_total_limit:
+    value: 10
+config:
+    value: configs/finetune_Ploc.yaml
+dataloader_num_workers:
+    value: 8
+enable_xformers_memory_efficient_attention:
+    value: false
+gradient_accumulation_steps:
+    value: 1
+gradient_checkpointing:
+    value: true
+input_perturbation:
+    value: 0
+learning_rate:
+    value: 1e-05
+local_rank:
+    value: -1
+logging_dir:
+    value: logs
+lr_scheduler:
+    value: constant
+lr_warmup_steps:
+    value: 500
+max_grad_norm:
+    value: 1
+max_train_steps:
+    value: 12000
+noise_offset:
+    value: 0
+num_train_epochs:
+    value: 20
+output_dir:
+    value: /workdir/radish/hachi/output_train
+ppt1_model_path:
+    value: /workdir/radish/hachi/checkpoints/ppt-v1
+pretrained_model_name_or_path:
+    value: /workdir/radish/hachi/checkpoints/stable-diffusion-v1-5
+random_flip:
+    value: false
+report_to:
+    value: wandb
+resolution:
+    value: 512
+resume_from_checkpoint:
+    value: latest
+scale_lr:
+    value: false
+tracker_project_name:
+    value: ppt1_finetune
+train_batch_size:
+    value: 16
+use_8bit_adam:
+    value: false
+use_ema:
+    value: false
+validation_epochs:
+    value: 5
+validation_steps:
+    value: 500

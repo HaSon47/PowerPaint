@@ -1,0 +1,79 @@
+[34m[1mwandb[0m: Detected [huggingface_hub.inference] in use.
+[34m[1mwandb[0m: Use W&B Weave for improved LLM call tracing. Install Weave with `pip install weave` then add `import weave` to the top of your script.
+[34m[1mwandb[0m: For more information, check out the docs at: https://weave-docs.wandb.ai/
+12/07/2025 21:52:54 - INFO - __main__ - ***** Running training for ppt1_finetune *****
+12/07/2025 21:52:54 - INFO - __main__ -   Num examples = 3404
+12/07/2025 21:52:54 - INFO - __main__ -   Num Epochs = 20
+12/07/2025 21:52:54 - INFO - __main__ -   Instantaneous batch size per device = 16
+12/07/2025 21:52:54 - INFO - __main__ -   Total train batch size (w. parallel, distributed & accumulation) = 16
+12/07/2025 21:52:54 - INFO - __main__ -   Gradient Accumulation steps = 1
+12/07/2025 21:52:54 - INFO - __main__ -   Total optimization steps = 12000
+12/07/2025 21:52:54 - INFO - __main__ - Checkpoint 'latest' does not exist. Starting a new training run.
+Steps:   0%|                                                                                                                     | 0/12000 [00:00<?, ?it/s]Traceback (most recent call last):
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/__main__.py", line 71, in <module>
+    cli.main()
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 508, in main
+    run()
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 358, in run_file
+    runpy.run_path(target, run_name="__main__")
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 310, in run_path
+    return _run_module_code(code, init_globals, run_name, pkg_name=pkg_name, script_name=fname)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 127, in _run_module_code
+    _run_code(code, mod_globals, init_globals, mod_name, mod_spec, pkg_name, script_name)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 118, in _run_code
+    exec(code, run_globals)
+  File "train_ppt.py", line 885, in <module>
+    main()
+  File "train_ppt.py", line 761, in main
+    encoder_hidden_states = text_encoder(batch["input_ids"], return_dict=False)[0]
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/transformers/models/clip/modeling_clip.py", line 816, in forward
+    return self.text_model(
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/transformers/models/clip/modeling_clip.py", line 714, in forward
+    bsz, seq_len = input_shape
+ValueError: too many values to unpack (expected 2)
+Traceback (most recent call last):
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/__main__.py", line 71, in <module>
+    cli.main()
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 508, in main
+    run()
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/adapter/../../debugpy/launcher/../../debugpy/../debugpy/server/cli.py", line 358, in run_file
+    runpy.run_path(target, run_name="__main__")
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 310, in run_path
+    return _run_module_code(code, init_globals, run_name, pkg_name=pkg_name, script_name=fname)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 127, in _run_module_code
+    _run_code(code, mod_globals, init_globals, mod_name, mod_spec, pkg_name, script_name)
+  File "/root/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_runpy.py", line 118, in _run_code
+    exec(code, run_globals)
+  File "train_ppt.py", line 885, in <module>
+    main()
+  File "train_ppt.py", line 761, in main
+    encoder_hidden_states = text_encoder(batch["input_ids"], return_dict=False)[0]
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/transformers/models/clip/modeling_clip.py", line 816, in forward
+    return self.text_model(
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/anaconda3/envs/powerpaint/lib/python3.9/site-packages/transformers/models/clip/modeling_clip.py", line 714, in forward
+    bsz, seq_len = input_shape
+ValueError: too many values to unpack (expected 2)

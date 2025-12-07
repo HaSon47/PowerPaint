@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Accelerate Training",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train_ppt.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+
+            "env": {
+                "ACCELERATE_DEBUG": "1",
+                "ACCELERATE_CONFIG_FILE": "configs/acc.yaml"
+            },
+
+            "args": [
+                "--config", "configs/finetune_Ploc.yaml"
+            ]
+        }
+    ]
+}

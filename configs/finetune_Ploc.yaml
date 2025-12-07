@@ -1,8 +1,8 @@
 pretrained_model_name_or_path: "/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5"
 ppt1_model_path: "/workdir/radish/hachi/checkpoints/ppt-v1"
-tracker_project_name: "ppt1_sd15"
-report_to: "tensorboard"
-output_dir: ""
+tracker_project_name: "ppt1_finetune_2"
+report_to: "wandb"
+output_dir: "/workdir/radish/hachi/New_Ouput"
 
 # learnable task prompts
 task_prompt:
@@ -15,65 +15,48 @@ task_prompt:
 train_data:
   resolution: 512
   datasets:
-    - name: "FSC147"
-      data_path: "/workdir/radish/hachi/OBJ_INS/phase2_V2/train"
-
-    - name: "laion5b"
-      # the probability of presence during training
-      prob: 0.4
-      dataset_class: "LaionIterJsonDataset"
-      desc_prefix: true # set as true to put description in front of task prompt
-
-      # you may need to change the path to your own path
-      client_prefix: "laion5b:"
-      anno_root: "laion5b:s3://llm-process/laion-5b/format/v020/laion2B-en/"
-      random_mask_root: "data/lama_mask/"
-      aethetic_score_threshold: 5
-      bufsize: 100
-      resolution: 512
-
-    - name: "openimages"
-      prob: 0.6 # the probability of presence during training
-      dataset_class: "OpenImageBLIPaug_Dataset"
-      desc_prefix: true #set description in front of task prompt
-
-      # you may need to change the path to your own path
-      image_root: "openmmlab:s3://openmmlab/datasets/detection/OpenImages/OpenImages/train/"
-      mask_root: "data/openimagev6/mask/"
-      # prompt that describes segmented objects
-      anno_root: "data/openimagev6/prompt"
-      aethetic_score_threshold: 0.1
-      bufsize: null
-      resolution: 512
+    name: "FSC147"
+    data_path: "/workdir/radish/hachi/OBJ_INS/phase2_V2/train"
 
 # training hyper-parameters
-num_train_epochs: 100
-lr_warmup_steps: 500
+num_train_epochs: 20
+lr_warmup_steps: 200
 learning_rate: 1e-5
-max_train_steps: 25e3            # max training steps
-# train_batch_size: 64              # batch size per GPU
+max_train_steps: 8e3            # max training steps
+train_batch_size: 16              # batch size per GPU
 dataloader_num_workers: 8
 
 gradient_checkpointing: true
 
-checkpointing_steps: 1e3
-validation_steps: 1e3
-checkpoints_total_limit: 5
+checkpointing_steps: 2e2
+validation_steps: 2e2
+checkpoints_total_limit: 10
 resume_from_checkpoint: "latest"
 
 
 # validation data
 validation_data:
-  data_root: "/workdir/radish/hachi/OBJ_INS/phase2_V2/test"
+  data_root: "/home/hachi/obj-ins/PowerPaint/validation/"
   cases:
-    - image: "2_b1/ground_truth.jpg" # cần resize
-      mask: "...." # cần bbox mask
+    - image: "test/2_b1/ground_truth.png" # cần resize
+      mask: "test/2_b1/mask.png" # cần bbox mask
       prompt:
         - task: "indomain_inpainting" 
           prompt: ""
           negative_prompt: ""
-          promptA: ${task_prompt.object_inpainting.placeholder_tokens} A seashell
-          promptB: ${task_prompt.object_inpainting.placeholder_tokens} A seashell
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A seashell
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A seashell
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+    - image: "val/560_b3/ground_truth.png" # cần resize
+      mask: "val/560_b3/mask.png" # cần bbox mask
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""

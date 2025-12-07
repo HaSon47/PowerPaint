@@ -16,20 +16,23 @@ logger = get_logger(__name__)
 def load_data(data_path):
     data_info_list = []
     for img_folder in os.listdir(data_path):
-        # load data
-        with open(os.path.join(data_path, img_folder, 'annotation.json'), 'r') as f:
-            anno = json.load(f)
-        mask_bbox = anno['inpainted_bboxes'][0]
-        loc_bbox = anno['inpainted_bboxes'][1]
-        prompt = anno['class_based_caption']
-        img_path = os.path.join(data_path, img_folder, 'ground_truth.jpg')
-        data_info = {
-            "img_path": img_path,
-            "mask_bbox": mask_bbox,
-            "loc_bbox": loc_bbox,
-            "prompt": prompt
-        }
-        data_info_list.append(data_info)
+        try:
+            # load data
+            with open(os.path.join(data_path, img_folder, 'annotation.json'), 'r') as f:
+                anno = json.load(f)
+            mask_bbox = anno['inpainted_bboxes'][0]
+            loc_bbox = anno['inpainted_bboxes'][1]
+            prompt = anno['class_based_caption']
+            img_path = os.path.join(data_path, img_folder, 'ground_truth.jpg')
+            data_info = {
+                "img_path": img_path,
+                "mask_bbox": mask_bbox,
+                "loc_bbox": loc_bbox,
+                "prompt": prompt
+            }
+            data_info_list.append(data_info)
+        except:
+            continue
 
     return data_info_list
 
@@ -129,13 +132,12 @@ class FSCDataset(Dataset):
         task_prompt,
         resolution
     ):
-        self.data_path = data_path,
-        self.transforms = transforms,
-        self.pipeline = pipeline,
-        self.task_prompt = task_prompt,
+        self.transforms = transforms
+        self.pipeline = pipeline
+        self.task_prompt = task_prompt
         self.resolution = resolution
 
-        self.data_info_list = load_data(self.data_path)
+        self.data_info_list = load_data(data_path)
 
 
     def __len__(self):
@@ -143,24 +145,26 @@ class FSCDataset(Dataset):
 
     def __getitem__(self, idx):
         # Cơ chế retry: Nếu load lỗi ảnh này, tự động lấy ảnh ngẫu nhiên khác
-        try:
-            return self._get_item_inner(idx)
-        except Exception as e:
-            logger.info(f"Error loading index {idx}: {e}. Retrying with random index...")
-            return self.__getitem__(random.randint(0, len(self) - 1))
+        # try:
+        return self._get_item_inner(idx)
+        # except Exception as e:
+        #     logger.info(f"Error loading index {idx}: {e}. Retrying with random index...")
+        #     return self.__getitem__(random.randint(0, len(self) - 1))
 
     def _get_item_inner(self, idx):
         data_info = self.data_info_list[idx]
 
         output = {}
         img, mask, loc_bbox = augment_images(data_info['img_path'], data_info['mask_bbox'], data_info['loc_bbox'], self.resolution)
+        ToT = transforms.ToTensor()
         if self.transforms:
+            img = Image.fromarray(img).convert('RGB')
             output["pixel_values"] = self.transforms(img)
         else:
             img = Image.fromarray(img).convert('RGB')
 
             # convert to tensors
-            img = transforms.ToTensor(img)
+            img = ToT(img)
 
             # normalize the image with mean and std
             normalize = transforms.Normalize(mean=[0.5], std=[0.5])
@@ -169,7 +173,7 @@ class FSCDataset(Dataset):
             output["pixel_values"] = img
 
         mask = Image.fromarray(mask).convert('L')
-        mask = transforms.ToTensor(mask)
+        mask = ToT(mask)
         mask[mask != 0] = 1
         output["mask"] = mask
 
@@ -181,16 +185,22 @@ class FSCDataset(Dataset):
             prompt = data_info['prompt']
 
         promptA = self.task_prompt.indomain_inpainting.placeholder_tokens
-        prompt = f"{promptA} {prompt}"
+        promptB = self.task_prompt.indomain_inpainting.placeholder_tokens
+        promptA, promptB = f"{promptA} {prompt}", f"{promptB} {prompt}"
 
-        prompt = self.pipeline.maybe_convert_prompt(prompt)
-        output["input_ids"] = self.pipeline.tokenizer(
-            prompt,
+
+        prompt = self.pipeline.maybe_convert_prompt(prompt, self.pipeline.tokenizer)
+        promptA = self.pipeline.maybe_convert_prompt(promptA, self.pipeline.tokenizer)
+        promptB = self.pipeline.maybe_convert_prompt(promptB, self.pipeline.tokenizer)
+        output["input_idsA"], output["input_idsB"], output["input_ids"] = self.pipeline.tokenizer(
+            [promptA, promptB, prompt],
             max_length=self.pipeline.tokenizer.model_max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt",
         ).input_ids
+        alpha = torch.tensor((1.0, 0.0))
+        output["tradeoff"] = alpha
 
         return output
 

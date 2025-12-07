@@ -185,7 +185,7 @@ class FSCDataset(Dataset):
 
         prompt = self.pipeline.maybe_convert_prompt(prompt)
         output["input_ids"] = self.pipeline.tokenizer(
-            [prompt],
+            prompt,
             max_length=self.pipeline.tokenizer.model_max_length,
             padding="max_length",
             truncation=True,

@@ -1,6 +1,8 @@
-pretrained_model_name_or_path: "runwayml/stable-diffusion-v1-5"
+pretrained_model_name_or_path: "/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5"
+ppt1_model_path: "/workdir/radish/hachi/checkpoints/ppt-v1"
 tracker_project_name: "ppt1_sd15"
 report_to: "tensorboard"
+output_dir: ""
 
 # learnable task prompts
 task_prompt:
@@ -13,6 +15,9 @@ task_prompt:
 train_data:
   resolution: 512
   datasets:
+    - name: "FSC147"
+      data_path: "/workdir/radish/hachi/OBJ_INS/phase2_V2/train"
+
     - name: "laion5b"
       # the probability of presence during training
       prob: 0.4
@@ -42,6 +47,8 @@ train_data:
       resolution: 512
 
 # training hyper-parameters
+num_train_epochs: 100
+lr_warmup_steps: 500
 learning_rate: 1e-5
 max_train_steps: 25e3            # max training steps
 # train_batch_size: 64              # batch size per GPU
@@ -57,52 +64,16 @@ resume_from_checkpoint: "latest"
 
 # validation data
 validation_data:
-  data_root: "examples"
+  data_root: "/workdir/radish/hachi/OBJ_INS/phase2_V2/test"
   cases:
-    - image: "cake.jpg"
-      mask: "cake_object_mask.png"
+    - image: "2_b1/ground_truth.jpg" # cần resize
+      mask: "...." # cần bbox mask
       prompt:
-        - task: "object_inpainting" # text-guided object inpainting
+        - task: "indomain_inpainting" 
           prompt: ""
           negative_prompt: ""
-          promptA: ${task_prompt.object_inpainting.placeholder_tokens} A cake on the table
-          promptB: ${task_prompt.object_inpainting.placeholder_tokens} A cake on the table
+          promptA: ${task_prompt.object_inpainting.placeholder_tokens} A seashell
+          promptB: ${task_prompt.object_inpainting.placeholder_tokens} A seashell
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""
-
-        - task: "context inpainting" # text-free context inpainting
-          prompt: ""
-          negative_prompt: ""
-          promptA: ${task_prompt.context_inpainting.placeholder_tokens}
-          promptB: ${task_prompt.context_inpainting.placeholder_tokens}
-          tradeoff: 1.0
-          negative_promptA: ""
-          negative_promptB: ""
-
-        - task: "object_removal" # context-guided object remove
-          prompt: ""
-          negative_prompt: ""
-          promptA: ${task_prompt.context_inpainting.placeholder_tokens} empty blur scene
-          promptB: ${task_prompt.context_inpainting.placeholder_tokens} empty blur scene
-          tradeoff: 1.0
-          negative_promptA: ${task_prompt.object_inpainting.placeholder_tokens}
-          negative_promptB: ${task_prompt.object_inpainting.placeholder_tokens}
-
-        - task: "shape_inpainting" # shape-guided object inpainting
-          prompt: ""
-          negative_prompt: ""
-          promptA: ${task_prompt.shape_inpainting.placeholder_tokens} A cake on the table
-          promptB: ${task_prompt.context_inpainting.placeholder_tokens} A cake on the table
-          tradeoff: 0.5
-          negative_promptA: ""
-          negative_promptB: ""
-
-        - task: "t2i" # context-guided object remove
-          prompt: ""
-          negative_prompt: ""
-          promptA: ${task_prompt.context_inpainting.placeholder_tokens} a blue cake on the table, high-quality
-          promptB: ${task_prompt.context_inpainting.placeholder_tokens} a blue cake on the table, high-quality
-          tradeoff: 1.0
-          negative_promptA: worst quality, low quality, normal quality, bad quality, blunrry
-          negative_promptB: worst quality, low quality, normal quality, bad quality, blurry

@@ -21,3 +21,5 @@ data/
 debug*
 
 .env
+
+wandb/

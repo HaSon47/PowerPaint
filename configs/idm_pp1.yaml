@@ -1,8 +1,8 @@
-pretrained_model_name_or_path: "/workdir/radish/hachi/checkpoints/stable-diffusion-inpainting"
-ppt1_model_path: "/workdir/radish/hachi/checkpoints/ppt-v1"
-#tracker_project_name: "ppt1_finetune_bs64"
-#report_to: "wandb"
-output_dir: "/workdir/radish/hachi/New_ouput_3"
+base_model_path: "/workdir/radish/hachi/checkpoints/stable-diffusion-inpainting" 
+ppt1_checkpoint: "/workdir/radish/hachi/checkpoints/ppt-v1"
+# tracker_project_name: "idm_pp1_bs64"
+# report_to: "wandb"
+output_dir: "/workdir/radish/hachi/New_ouput_4"
 
 # learnable task prompts
 task_prompt:
@@ -30,8 +30,6 @@ gradient_checkpointing: true
 
 checkpointing_steps: 2e2
 validation_steps: 2e2
-checkpoints_total_limit: 10
-# resume_from_checkpoint: "latest"
 
 
 # validation data

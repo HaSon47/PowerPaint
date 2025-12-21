@@ -6,9 +6,19 @@ output_dir: "/workdir/radish/hachi/New_ouput_3"
 
 # learnable task prompts
 task_prompt:
-  indomain_inpainting:
-    placeholder_tokens: "P_loc"
-    initializer_token: "P_ctxt"
+  object_inpainting:
+    placeholder_tokens: "P_obj"
+    initializer_token: "a"
+    num_vectors_per_token: 10
+
+  context_inpainting:
+    placeholder_tokens: "P_ctxt"
+    initializer_token: "a"
+    num_vectors_per_token: 10
+
+  shape_inpainting:
+    placeholder_tokens: "P_shape"
+    initializer_token: "a"
     num_vectors_per_token: 10
 
 # training data
@@ -45,8 +55,8 @@ validation_data:
         - task: "indomain_inpainting" 
           prompt: ""
           negative_prompt: ""
-          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A seashell
-          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A seashell
+          promptA: ${task_prompt.context_inpainting.placeholder_tokens} A seashell
+          promptB: ${task_prompt.context_inpainting.placeholder_tokens} A seashell
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""
@@ -66,8 +76,8 @@ validation_data:
         - task: "indomain_inpainting" 
           prompt: ""
           negative_prompt: ""
-          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
-          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          promptA: ${task_prompt.context_inpainting.placeholder_tokens} A flamingo
+          promptB: ${task_prompt.context_inpainting.placeholder_tokens} A flamingo
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""

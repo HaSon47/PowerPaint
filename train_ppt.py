@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import shutil
+import inspect
 
 import accelerate
 import numpy as np
@@ -97,7 +98,14 @@ def log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtyp
                 ).images[0]
             image_logs.append(image)
             image_grid.paste(image, (validation_image.size[0] * (i + 1), 0))
-        image_grid.save(os.path.join(args.output_dir, f"{str(step).zfill(3)}_{os.path.basename(case.image)}"))
+        save_path = os.path.join(
+            args.output_dir,
+            f"{case.name}_{str(step).zfill(3)}_{os.path.basename(case.image)}"
+        )
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        image_grid.save(save_path)
+
+       # image_grid.save(os.path.join(args.output_dir, f"{case.name}_{str(step).zfill(3)}_{os.path.basename(case.image)}"))
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -396,7 +404,6 @@ def parse_args():
     )
 
     args = parser.parse_args()
-    args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
     if env_local_rank != -1 and env_local_rank != args.local_rank:
         args.local_rank = env_local_rank
@@ -485,11 +492,8 @@ def main():
         variant=args.variant,
         local_files_only=True,
     )
-    #loading pre-trained weights
-    load_model(pipe.unet, os.path.join(args.ppt1_model_path, "unet/unet.safetensors"), strict=False)
-    load_model(pipe.text_encoder, os.path.join(args.ppt1_model_path, "text_encoder/text_encoder.safetensors"),strict=False )
 
-    # IMPORTANT:
+     # IMPORTANT:
     # 1. Add tokens in the same order and placeholder with training
     # 2. set initilize_parameters to False to avoid reinitializing the model
     pipe.add_tokens(
@@ -498,6 +502,9 @@ def main():
         num_vectors_per_token=10,
         initialize_parameters=False,
     )
+    #loading pre-trained weights
+    load_model(pipe.unet, os.path.join(args.ppt1_model_path, "unet/unet.safetensors"), strict=False)
+    load_model(pipe.text_encoder, os.path.join(args.ppt1_model_path, "text_encoder/text_encoder.safetensors"),strict=False )
 
     # IMPORTANT: add learnable tokens for task prompts into tokenizer
     placeholder_tokens = [v.placeholder_tokens for k, v in args.task_prompt.items()]
@@ -610,7 +617,7 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    # preparing datasets and dataloader for training.
+    #preparing datasets and dataloader for training.
     train_dataset = FSCDataset(args.train_data.datasets.data_path, transforms=None, pipeline=pipe, task_prompt=args.task_prompt, resolution=args.train_data.resolution)
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -638,6 +645,9 @@ def main():
     # Prepare everything with our `accelerator`.
     unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         unet, text_encoder, optimizer, train_dataloader, lr_scheduler
+    )
+    unet, text_encoder = accelerator.prepare(
+        unet, text_encoder
     )
 
     # Move text_encode and vae to gpu and cast to weight_dtype
@@ -701,9 +711,9 @@ def main():
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
+            # first_epoch = global_step // num_update_steps_per_epoch
 
-    # Only show the progress bar once on each machine.args.max_train_steps
+    #Only show the progress bar once on each machine.args.max_train_steps
     progress_bar = tqdm(
         range(0, int(args.max_train_steps)),
         initial=initial_global_step,
@@ -716,6 +726,18 @@ def main():
     text_encoder.train()
     # keep original embeddings as reference
     orig_embeds_params = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight.data.clone()
+
+    if accelerator.is_main_process:
+        log_validation(
+                        tokenizer,
+                        text_encoder,
+                        unet,
+                        args,
+                        accelerator,
+                        weight_dtype,
+                        0,
+                    )
+
 
     for _ in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0

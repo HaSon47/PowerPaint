@@ -2,21 +2,23 @@
     "version": "0.2.0",
     "configurations": [
 
+
         {
             "name": "Debug Accelerate Training",
             "type": "debugpy",
             "request": "launch",
-            "program": "train_ppt.py",
+            "program": "train_idm_pp1.py",
             "console": "integratedTerminal",
             "justMyCode": false,
 
             "env": {
                 "ACCELERATE_DEBUG": "1",
-                "ACCELERATE_CONFIG_FILE": "configs/acc.yaml"
+                "ACCELERATE_CONFIG_FILE": "configs/acc.yaml",
+                "CUDA_VISIBLE_DEVICES": "2",
             },
 
             "args": [
-                "--config", "configs/finetune_Ploc.yaml"
+                "--config", "configs/idm_pp1.yaml"
             ]
         }
     ]

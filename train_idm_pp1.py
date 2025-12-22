@@ -33,35 +33,34 @@ from powerpaint.models import UNet2DConditionModel
 from powerpaint.pipelines import StableDiffusionInpaintIndomainPipeline
 from powerpaint.utils.utils import TokenizerWrapper, add_tokens
 
-# if is_wandb_available():
-#     import wandb
-#     from dotenv import load_dotenv
-#     load_dotenv()
-#     wandb.login()
+if is_wandb_available():
+    import wandb
+    from dotenv import load_dotenv
+    load_dotenv()
+    wandb.login()
 
 logger = get_logger(__name__, log_level="INFO")
 
-def log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtype, step):
+def log_validation(pipe, args, accelerator, step):
     logger.info("Running validation... ")
 
-    pipe = StableDiffusionInpaintIndomainPipeline.from_pretrained(
-        args.base_model_path,
-        # text_encoder=accelerator.unwrap_model(text_encoder),
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
-        # unet=accelerator.unwrap_model(unet),
-        unet=unet,
-        safety_checker=None,
-        revision=args.revision,
-        variant=args.variant,
-        torch_dtype=weight_dtype,
-        local_files_only=True, # load files from local cache
-    )
-    pipe = pipe.to(accelerator.device)
+    # pipe = StableDiffusionInpaintIndomainPipeline.from_pretrained(
+    #     args.base_model_path,
+    #     # text_encoder=accelerator.unwrap_model(text_encoder),
+    #     # tokenizer=tokenizer,
+    #     # unet=accelerator.unwrap_model(unet),
+    #     # safety_checker=None,
+    #     # revision=args.revision,
+    #     # variant=args.variant,
+    #     torch_dtype=weight_dtype,
+    #     local_files_only=True, # load files from local cache
+    # )
+    # pipe.text_encoder = text_encoder,
+    # pipe.tokenizer = tokenizer
     pipe.set_progress_bar_config(disable=True)
+    pipe.unet.eval()
+    pipe.text_encoder.eval()
 
-    if args.enable_xformers_memory_efficient_attention:
-        pipe.enable_xformers_memory_efficient_attention()
 
     # load validation images
     image_logs = []
@@ -84,17 +83,19 @@ def log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtyp
         )
         image_grid.paste(validation_image, (0, 0))
         for i, p in enumerate(validation_prompts):
-            with torch.autocast(accelerator.device.type):
-                image = pipe(
-                    promptA=p.promptA,
-                    promptB=p.promptB,
-                    negative_promptA=p.get("negative_promptA", None),
-                    negative_promptB=p.get("negative_promptB", None),
-                    tradeoff=p.tradeoff,
-                    image=validation_image,
-                    mask=validation_mask,
-                    num_inference_steps=45,
-                ).images[0]
+            with torch.no_grad():
+                with torch.autocast(accelerator.device.type):
+                    image = pipe(
+                        promptA=p.promptA,
+                        promptB=p.promptB,
+                        tradoff=p.tradeoff,
+                        tradoff_nag=p.tradeoff,
+                        negative_promptA=p.get("negative_promptA", None),
+                        negative_promptB=p.get("negative_promptB", None),
+                        image=validation_image,
+                        mask=validation_mask,
+                        num_inference_steps=45,
+                    ).images[0]
             image_logs.append(image)
             image_grid.paste(image, (validation_image.size[0] * (i + 1), 0))
         save_path = os.path.join(
@@ -105,29 +106,26 @@ def log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtyp
         image_grid.save(save_path)
 
        # image_grid.save(os.path.join(args.output_dir, f"{case.name}_{str(step).zfill(3)}_{os.path.basename(case.image)}"))
-    gc.collect()
-    torch.cuda.empty_cache()
 
-    # for tracker in accelerator.trackers:
-    #     if tracker.name == "tensorboard":
-    #         np_images = np.stack([np.asarray(img) for img in image_logs])
-    #         tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-    #     elif tracker.name == "wandb":
-    #         tracker.log(
-    #             {
-    #                 "validation": [
-    #                     wandb.Image(image, caption=f"{p.task}")
-    #                     for image, p in zip(image_logs, args.validation_data.cases[0].prompt)
-    #                 ]
-    #             }
-    #         )
-    #     else:
-    #         logger.warning(f"image logging not implemented for {tracker.name}")
+    for tracker in accelerator.trackers:
+        if tracker.name == "tensorboard":
+            np_images = np.stack([np.asarray(img) for img in image_logs])
+            tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
+        elif tracker.name == "wandb":
+            tracker.log(
+                {
+                    "validation": [
+                        wandb.Image(image, caption=f"{p.task}")
+                        for image, p in zip(image_logs, args.validation_data.cases[0].prompt)
+                    ]
+                }
+            )
+        else:
+            logger.warning(f"image logging not implemented for {tracker.name}")
 
-    del pipe
-    torch.cuda.empty_cache()
-
-    return image_logs
+    pipe.unet.train()
+    pipe.text_encoder.train()
+    #return image_logs
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -463,7 +461,7 @@ def main():
         tokenizer=pipe.tokenizer,
         text_encoder=pipe.text_encoder,
         placeholder_tokens=["P_ctxt", "P_shape", "P_obj"],
-        initialize_tokens=["a", "a", "a", "a"],
+        initialize_tokens=["a", "a", "a"],
         num_vectors_per_token=10,
     )
     # load ppt1 checkpoint
@@ -500,9 +498,7 @@ def main():
         if p.requires_grad:
             logger.info(f'{name} {p.shape}')
 
-    log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtype, 0)
 
-    return
     # # Don't need to create EMA for the unet because we just finetune text encoder
     # if args.use_ema:
     #     ema_unet = UNet2DConditionModel.from_pretrained(
@@ -510,18 +506,6 @@ def main():
     #     )
     #     ema_unet = EMAModel(ema_unet.parameters(), model_cls=UNet2DConditionModel, model_config=ema_unet.config)
 
-    if args.enable_xformers_memory_efficient_attention:
-        if is_xformers_available():
-            import xformers
-
-            xformers_version = version.parse(xformers.__version__)
-            if xformers_version == version.parse("0.0.16"):
-                logger.warning(
-                    "xFormers 0.0.16 cannot be used for training in some GPUs. If you observe problems during training, please update xFormers to at least 0.0.17. See https://huggingface.co/docs/diffusers/main/en/optimization/xformers for more details."
-                )
-            unet.enable_xformers_memory_efficient_attention()
-        else:
-            raise ValueError("xformers is not available. Make sure it is installed correctly")
 
     # # Taken from [Sayak Paul's Diffusers PR #6511](https://github.com/huggingface/diffusers/pull/6511/files)
     # def unwrap_model(model):
@@ -586,7 +570,7 @@ def main():
     trainable_prompt = embedding_layer.trainable_embeddings['P_loc']
 
     optimizer = optimizer_cls(
-        list(trainable_prompt),
+        [trainable_prompt],
         lr=args.learning_rate,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
@@ -670,6 +654,25 @@ def main():
     )
 
     text_encoder.train()
+
+    # Check what we set grad True
+    for name, p in unet.named_parameters():
+        if p.requires_grad:
+            logger.info(f'{name} {p.shape}')
+
+    pipe.safety_checker = None
+    if accelerator.is_main_process:
+        log_validation(
+            pipe,
+            args,
+            accelerator,
+            global_step,
+        )
+
+    # Check what we set grad True
+    for name, p in unet.named_parameters():
+        if p.requires_grad:
+            logger.info(f'{name} {p.shape}')
 
     for _ in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
@@ -762,7 +765,7 @@ def main():
                 # Backpropagate
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(trainable_prompt, args.max_grad_norm)
+                    accelerator.clip_grad_norm_([trainable_prompt], args.max_grad_norm)
 
                 optimizer.step()
                 lr_scheduler.step()
@@ -790,12 +793,9 @@ def main():
                     
                     if hasattr(args, "validation_data") is not None and global_step % args.validation_steps == 0:
                         log_validation(
-                            tokenizer,
-                            text_encoder,
-                            unet,
+                            pipe,
                             args,
                             accelerator,
-                            weight_dtype,
                             global_step,
                         )
 
@@ -805,13 +805,13 @@ def main():
             if global_step >= args.max_train_steps:
                 break
 
-        accelerator.wait_for_everyone()
-        if accelerator.is_main_process:
-            if hasattr(args, "validation_data"):
-                logger.info("Running inference...")
-                log_validation(tokenizer, text_encoder, unet, args, accelerator, weight_dtype, global_step)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        if hasattr(args, "validation_data"):
+            logger.info("Running inference...")
+            log_validation(pipe, args, accelerator, global_step)
 
-        accelerator.end_training()
+    accelerator.end_training()
 
 if __name__ == "__main__":
     main()

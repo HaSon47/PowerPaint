@@ -23,3 +23,5 @@ debug*
 .env
 
 wandb/
+
+tmp*/

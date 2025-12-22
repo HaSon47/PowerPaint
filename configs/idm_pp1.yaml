@@ -1,8 +1,8 @@
-base_model_path: "/workdir/radish/hachi/checkpoints/stable-diffusion-inpainting" 
-ppt1_checkpoint: "/workdir/radish/hachi/checkpoints/ppt-v1"
-# tracker_project_name: "idm_pp1_bs64"
-# report_to: "wandb"
-output_dir: "/workdir/radish/hachi/New_ouput_4"
+base_model_path: "/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting" 
+ppt1_checkpoint: "/mnt/disk2/hachi/checkpoints/ppt-v1"
+tracker_project_name: "idm_pp1_lre7"
+report_to: "wandb"
+output_dir: "/mnt/disk2/hachi/New_ouput_7"
 
 # learnable task prompts
 task_prompt:
@@ -16,16 +16,17 @@ train_data:
   resolution: 512
   datasets:
     name: "FSC147"
-    data_path: "/workdir/radish/hachi/OBJ_INS/phase2_V2/train"
+    data_path: "/mnt/disk2/hachi/data/train"
 
 # training hyper-parameters
-num_train_epochs: 20
-lr_warmup_steps: 200
-learning_rate: 1e-5
-max_train_steps: 8e3            # max training steps
-train_batch_size: 64              # batch size per GPU
-dataloader_num_workers: 8
-
+num_train_epochs: 10
+lr_scheduler: "linear"
+lr_warmup_steps: 100
+learning_rate: 1e-7
+max_train_steps: 4e3            # max training steps
+train_batch_size: 8              # batch size per GPU
+dataloader_num_workers: 4
+gradient_accumulation_steps: 2
 gradient_checkpointing: true
 
 checkpointing_steps: 2e2
@@ -34,7 +35,7 @@ validation_steps: 2e2
 
 # validation data
 validation_data:
-  data_root: "/home/hachi/obj-ins/PowerPaint/validation/"
+  data_root: "/mnt/disk1/aiotlab/hachi/PowerPaint/validation/"
   cases:
     - image: "test/2_b1/ground_truth.png" # cần resize
       mask: "test/2_b1/mask.png" # cần bbox mask
@@ -56,6 +57,49 @@ validation_data:
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""
+
+    - image: "test/2615_b1/ground_truth.png" # cần resize
+      mask: "test/2615_b1/mask.png" # cần bbox mask
+      name: 2615_b1
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A deer
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A deer
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A deer
+          promptB: P_obj A deer
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        
+    - image: "test/7420_b1/ground_truth.png" # cần resize
+      mask: "test/7420_b1/mask.png" # cần bbox mask
+      name: 7420_b1
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A deer
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A deer
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A deer
+          promptB: P_obj A deer
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        
         
     - image: "val/560_b3/ground_truth.png" # cần resize
       mask: "val/560_b3/mask.png" # cần bbox mask
@@ -74,6 +118,90 @@ validation_data:
           negative_prompt: ""
           promptA: P_obj A flamingo
           promptB: P_obj A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+
+    - image: "val/568_b1/ground_truth.png" # cần resize
+      mask: "val/568_b1/mask.png" # cần bbox mask
+      name: 568_b1
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A flamingo
+          promptB: P_obj A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+    
+    - image: "val/573_b3/ground_truth.png" # cần resize
+      mask: "val/573_b3/mask.png" # cần bbox mask
+      name: 573_b3
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A flamingo
+          promptB: P_obj A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+
+    - image: "val/578_b2/ground_truth.png" # cần resize
+      mask: "val/578_b2/mask.png" # cần bbox mask
+      name: 578_b2
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A flamingo
+          promptB: P_obj A flamingo
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+
+    - image: "val/3536_b3/ground_truth.png" # cần resize
+      mask: "val/3536_b3/mask.png" # cần bbox mask
+      name: 3536_b3
+      prompt:
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: ${task_prompt.indomain_inpainting.placeholder_tokens} A chicken wing
+          promptB: ${task_prompt.indomain_inpainting.placeholder_tokens} A chicken wing
+          tradeoff: 1.0
+          negative_promptA: ""
+          negative_promptB: ""
+        - task: "indomain_inpainting" 
+          prompt: ""
+          negative_prompt: ""
+          promptA: P_obj A chicken wing
+          promptB: P_obj A chicken wing
           tradeoff: 1.0
           negative_promptA: ""
           negative_promptB: ""

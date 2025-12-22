@@ -10,11 +10,11 @@
             "program": "train_idm_pp1.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-
+            "python": "/mnt/disk1/aiotlab/envs/powerpaint/bin/python",
             "env": {
                 "ACCELERATE_DEBUG": "1",
                 "ACCELERATE_CONFIG_FILE": "configs/acc.yaml",
-                "CUDA_VISIBLE_DEVICES": "2",
+                "CUDA_VISIBLE_DEVICES": "1",
             },
 
             "args": [

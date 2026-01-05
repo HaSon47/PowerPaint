@@ -1,49 +1,47 @@
-{
-    "version": "0.2.0",
-    "configurations": [
-
-
-        {
-            "name": "Debug Accelerate Training",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "train_idm_pp1.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "python": "/mnt/disk1/aiotlab/envs/powerpaint/bin/python",
-            "env": {
-                "ACCELERATE_DEBUG": "1",
-                "ACCELERATE_CONFIG_FILE": "configs/acc.yaml",
-                "CUDA_VISIBLE_DEVICES": "1",
-            },
-
-            "args": [
-                "--config", "configs/idm_pp1.yaml"
-            ]
-        }
-    ]
-}
-
 // {
 //     "version": "0.2.0",
 //     "configurations": [
 
+
+
 //         {
-//             "name": "Debug PowerPaint (CUDA:2)",
+//             "name": "Debug Accelerate Training",
 //             "type": "debugpy",
 //             "request": "launch",
-//             "program": "${workspaceFolder}/test_ppt.py",
+//             "program": "train_idm_pp1.py",
 //             "console": "integratedTerminal",
 //             "justMyCode": false,
-//             "args": [
-//                 "--config",
-//                 "configs/test.yaml"
-//             ],
+//             "python": "/mnt/disk1/aiotlab/envs/powerpaint/bin/python",
 //             "env": {
-//                 "CUDA_VISIBLE_DEVICES": "2",
-//                 "CUDA_LAUNCH_BLOCKING": "1"
-//             }
+//                 "ACCELERATE_DEBUG": "1",
+//                 "ACCELERATE_CONFIG_FILE": "configs/acc.yaml",
+//                 "CUDA_VISIBLE_DEVICES": "1",
+//             },
+
+//             "args": [
+//                 "--config", "configs/idm_pp1.yaml"
+//             ]
 //         }
 //     ]
 // }
+
+{
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Debug PowerPaint",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/try.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "python": "/root/anaconda3/envs/powerpaint/bin/python",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "3",
+                "CUDA_LAUNCH_BLOCKING": "1"
+            }
+        }
+    ]
+}
 

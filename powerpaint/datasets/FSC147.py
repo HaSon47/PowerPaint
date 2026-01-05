@@ -36,17 +36,14 @@ def load_data(data_path):
 
     return data_info_list
 
-def augment_images(img_path, mask_bbox, loc_bbox, resolution):
+def augment_images(img_path, mask_bbox, loc_bbox, resolution, expand_ratio=0.1):
     """
     Crop và resize img về kích thước resolution, thay đổi tọa độ bbox tương ứng.
     Đảm bảo crop vào phần có mask_bbox và loc_bbox
     parameters:
         img_path: path to img
         mask_bbox, loc_bbox: (x1, y1, x2, y2) theo tọa độ ảnh gốc
-    return:
-    img: numpy.ndarray [resolution x resolution x 3]
-    mask: numpy.ndarray [resolution x resolution]
-    loc_bbox: [x,y,x,y]
+        expand_ratio: tỉ lệ mở rộng bbox trước khi tạo mark và norm
     """
     img = cv2.imread(img_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -88,9 +85,9 @@ def augment_images(img_path, mask_bbox, loc_bbox, resolution):
     )
 
     # Kiểm tra đảm bảo chứa đủ bbox
-    for (bx1, by1, bx2, by2) in bboxes:
-        if not (crop_x1 <= bx1 and bx2 <= crop_x2 and crop_y1 <= by1 and by2 <= crop_y2):
-            logger.info(f"{img_path} Bbox quá to, không thể chứa trong crop hình vuông min(h,w).")
+    # for (bx1, by1, bx2, by2) in bboxes:
+    #     if not (crop_x1 <= bx1 and bx2 <= crop_x2 and crop_y1 <= by1 and by2 <= crop_y2):
+    #         logger.info(f"{img_path} Bbox quá to, không thể chứa trong crop hình vuông min(h,w).")
 
     # Crop
     crop = img[crop_y1:crop_y2, crop_x1:crop_x2]
@@ -111,13 +108,59 @@ def augment_images(img_path, mask_bbox, loc_bbox, resolution):
     new_mask_bbox = convert_bbox(mask_bbox)
     new_loc_bbox = convert_bbox(loc_bbox)
 
+    # Mở rộng bbox
+    def expand_box(bbox, ratio, max_val):
+        """
+        Mở rộng bbox theo tỷ lệ ratio.
+        Ví dụ: ratio=0.1 => Chiều rộng và cao tăng thêm 10%.
+        """
+        x1, y1, x2, y2 = bbox
+        w_box = x2 - x1
+        h_box = y2 - y1
+        
+        # Tính lượng cần mở rộng (padding mỗi bên là một nửa của phần tăng thêm)
+        dw = int(w_box * ratio)
+        dh = int(h_box * ratio)
+        
+        # Mở rộng từ tâm ra
+        x1 = x1 - dw // 2
+        y1 = y1 - dh // 2
+        x2 = x2 + dw // 2
+        y2 = y2 + dh // 2
+        
+        # Clip lại để không văng ra khỏi ảnh
+        return [
+            max(0, min(max_val, x1)),
+            max(0, min(max_val, y1)),
+            max(0, min(max_val, x2)),
+            max(0, min(max_val, y2))
+        ]
+    
+    # Thực hiện mở rộng bbox (trước khi tạo mask và norm)
+    if expand_ratio > 0:
+        new_mask_bbox = expand_box(new_mask_bbox, expand_ratio, resolution)
+        new_loc_bbox = expand_box(new_loc_bbox, expand_ratio, resolution)
+    else:
+        # Nếu không expand thì vẫn cần clip lại cho an toàn
+        new_mask_bbox = expand_box(new_mask_bbox, 0, resolution)
+        new_loc_bbox = expand_box(new_loc_bbox, 0, resolution)
+
+    
     # Tạo mask
     mask = np.zeros((resolution, resolution), dtype=np.uint8)
     x1, y1, x2, y2 = new_mask_bbox
     mask[y1:y2, x1:x2] = 255
 
+    # Chuẩn hóa loc_bbox về [0,1]
+    lx1, ly1, lx2, ly2 = new_loc_bbox
+    new_loc_bbox_norm = [
+        lx1 / resolution,
+        ly1 / resolution,
+        lx2 / resolution,
+        ly2 / resolution
+    ]
 
-    return resized, mask, new_loc_bbox
+    return resized, mask, new_loc_bbox_norm
 
 
 class FSCDataset(Dataset):

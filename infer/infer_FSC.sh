@@ -1,7 +1,7 @@
 #!/bin/bash
-CUDA_VISIBLE_DEVICES='1' python infer_test_to_define.py \
---version ppt-v1 \
---checkpoint_dir /workdir/radish/hachi/checkpoints/ppt-v1 \
---output_path /workdir/radish/hachi/Output/test_to_define/FSC_final/FSC_easy_no_overlap/text-guided \
---data_folder_path /workdir/radish/hachi/OBJ_INS/FSC_final/FSC_easy_no_overlap \
---task text-guided
+CUDA_VISIBLE_DEVICES='1' python infer_FSC.py \
+--version ppt-v2 \
+--checkpoint_dir /mnt/disk2/hachi/checkpoints/ppt-v2 \
+--output_path /mnt/disk2/hachi/Output/test_to_define/FSC_final/FSC_easy_overlap/ctxt-guided_ppt2 \
+--data_folder_path /mnt/disk2/hachi/data/FSC_final/FSC_easy_overlap \
+--task ctxt-guided

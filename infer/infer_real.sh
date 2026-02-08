@@ -1,7 +1,7 @@
 #!/bin/bash
 CUDA_VISIBLE_DEVICES='2' python infer_real.py \
---version ppt-v1 \
---checkpoint_dir /workdir/radish/hachi/checkpoints/ppt-v1 \
---output_path /workdir/radish/hachi/Output/test_to_define/Real/Real_difficult/text-guided \
---data_folder_path /workdir/radish/hachi/OBJ_INS/Real/Real_difficult \
---task text-guided
+--version ppt-v2 \
+--checkpoint_dir /mnt/disk2/hachi/checkpoints/ppt-v2 \
+--output_path /mnt/disk2/hachi/Output/test_to_define/Real/Real_difficult/ctxt-guided_ppt2 \
+--data_folder_path /mnt/disk2/hachi/data/Real/Real_difficult \
+--task ctxt-guided

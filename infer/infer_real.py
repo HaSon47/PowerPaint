@@ -2,6 +2,7 @@ import argparse
 import os
 import random
 import json
+import sys
 
 import cv2
 import gradio as gr
@@ -15,6 +16,8 @@ from transformers import CLIPTextModel, DPTFeatureExtractor, DPTForDepthEstimati
 
 from diffusers import UniPCMultistepScheduler
 from diffusers.pipelines.controlnet.pipeline_controlnet import ControlNetModel
+
+sys.path.append('..')
 from powerpaint.models.BrushNet_CA import BrushNetModel
 from powerpaint.models.unet_2d_condition import UNet2DConditionModel
 from powerpaint.pipelines.pipeline_PowerPaint import StableDiffusionInpaintPipeline as Pipeline
@@ -66,12 +69,12 @@ class PowerPaint:
         # initialize powerpaint pipeline
         if version == 'ppt-v1':
             self.pipe = Pipeline.from_pretrained(
-                '/workdir/radish/hachi/checkpoints/stable-diffusion-inpainting',
+                '/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting',
                 torch_dtype=weight_dtype,
                 local_files_only=True
             )
             self.pipe.tokenizer = TokenizerWrapper(
-                from_pretrained="/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5",
+                from_pretrained="/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting",
                 subfolder='tokenizer',
                 revision=None,
                 local_files_only=True,
@@ -119,7 +122,7 @@ class PowerPaint:
             # brushnet-based version
             unet = UNet2DConditionModel.from_pretrained(
                 # "sd-legacy/stable-diffusion-v1-5",
-                '/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5',
+                '/mnt/disk2/hachi/checkpoints/stable-diffusion-v1-5',
                 subfolder="unet",
                 revision=None,
                 torch_dtype=weight_dtype,
@@ -127,7 +130,7 @@ class PowerPaint:
             )
             text_encoder_brushnet = CLIPTextModel.from_pretrained(
                 # "sd-legacy/stable-diffusion-v1-5",
-                '/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5',
+                '/mnt/disk2/hachi/checkpoints/stable-diffusion-v1-5',
                 subfolder="text_encoder",
                 revision=None,
                 torch_dtype=weight_dtype,
@@ -295,8 +298,14 @@ class PowerPaint:
             # for brushnet-based method
             np_inpimg = np.array(input_image["image"])
             np_inmask = np.array(input_image["mask"]) / 255.0
+
+            if np_inmask.ndim == 2:
+                np_inmask = np_inmask[:, :, None]
+
             np_inpimg = np_inpimg * (1 - np_inmask)
-            input_image["image"] = Image.fromarray(np_inpimg.astype(np.uint8)).convert("RGB")
+            np_inpimg = np.clip(np_inpimg, 0, 255).astype(np.uint8)
+
+            input_image["image"] = Image.fromarray(np_inpimg).convert("RGB")
             result = self.pipe(
                 promptA=promptA,
                 promptB=promptB,

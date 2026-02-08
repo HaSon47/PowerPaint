@@ -94,13 +94,13 @@ class PowerPaintController:
         if version == "ppt-v1":
             self.pipe = Pipeline.from_pretrained(
                 # "sd-legacy/stable-diffusion-inpainting", 
-                "/workdir/radish/hachi/checkpoints/stable-diffusion-inpainting",
+                "/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting",
                 torch_dtype=weight_dtype, 
                 local_files_only=True
             )
             self.pipe.tokenizer = TokenizerWrapper(
                 #from_pretrained="sd-legacy/stable-diffusion-v1-5",
-                from_pretrained="/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5",
+                from_pretrained="/mnt/disk2/hachi/checkpoints/stable-diffusion-v1-5",
                 subfolder="tokenizer",
                 revision=None,
                 local_files_only=True,
@@ -148,7 +148,7 @@ class PowerPaintController:
             # brushnet-based version
             unet = UNet2DConditionModel.from_pretrained(
                 # "sd-legacy/stable-diffusion-v1-5",
-                '/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5',
+                '/mnt/disk2/hachi/checkpoints/stable-diffusion-v1-5',
                 subfolder="unet",
                 revision=None,
                 torch_dtype=weight_dtype,
@@ -156,7 +156,7 @@ class PowerPaintController:
             )
             text_encoder_brushnet = CLIPTextModel.from_pretrained(
                 # "sd-legacy/stable-diffusion-v1-5",
-                '/workdir/radish/hachi/checkpoints/stable-diffusion-v1-5',
+                '/mnt/disk2/hachi/checkpoints/stable-diffusion-v1-5',
                 subfolder="text_encoder",
                 revision=None,
                 torch_dtype=weight_dtype,

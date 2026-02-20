@@ -10,6 +10,7 @@ import accelerate
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -28,10 +29,18 @@ from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
-from powerpaint.datasets.FSC147 import FSCDataset
+from powerpaint.datasets.fsc_147 import FSCDataset, BucketBatchSampler, build_index
+from powerpaint.datasets.utils import collate_train
 from powerpaint.models import UNet2DConditionModel
 from powerpaint.pipelines import StableDiffusionInpaintIndomainPipeline
-from powerpaint.utils.utils import TokenizerWrapper, add_tokens
+from powerpaint.utils.utils import TokenizerWrapper, add_tokens, expand_unet_conv_in
+
+# Batch size theo bucket (bạn tự chỉnh theo VRAM)
+by_bucket_sizes = {
+    (512, 512): 12,
+    (512, 768): 8,
+    (512, 1024): 6,
+}
 
 if is_wandb_available():
     import wandb
@@ -476,7 +485,9 @@ def main():
         initialize_tokens=["P_ctxt"],
         num_vectors_per_token=10,
     )
-
+    # add the expanded channel
+    pipe.unet = expand_unet_conv_in(pipe.unet, extra_in_channels=1, init="mean_scaled")
+    
     vae, unet, tokenizer, noise_scheduler = pipe.vae, pipe.unet, pipe.tokenizer, pipe.scheduler
     text_encoder= pipe.text_encoder.to(torch.float32)
 
@@ -492,6 +503,9 @@ def main():
     text_encoder.text_model.embeddings.token_embedding.trainable_embeddings.P_obj.requires_grad_(False)
     text_encoder.text_model.embeddings.token_embedding.trainable_embeddings.P_shape.requires_grad_(False)
     text_encoder.text_model.embeddings.token_embedding.wrapped.weight.requires_grad_(False)
+
+    for p in unet.conv_in.parameters():
+        p.requires_grad = True
 
     # Check what we set grad True
     for name, p in text_encoder.named_parameters():
@@ -578,13 +592,23 @@ def main():
     )
 
     # Preparing datasets and dataloader for training
-    train_dataset = FSCDataset(args.train_data.datasets.data_path, transforms=None, pipeline=pipe, task_prompt=args.task_prompt, resolution=args.train_data.resolution)
+    train_root = "/mnt/disk2/hachi/data/train"
+    density_root = "/mnt/disk2/hachi/data/gt_density_map_adaptive_384_VarV2"
+    items = build_index(train_root, density_root)
+    train_dataset = FSCDataset(items, pipeline=pipe, task_prompt=args.task_prompt)
 
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=args.train_batch_size,
+    sampler = BucketBatchSampler(
+        dataset=train_dataset,
+        by_bucket_sizes=by_bucket_sizes,
+        shuffle=True,
+        drop_last=True,
+        seed=42,
+        bucket_sampling="proportional"
+    )
+    train_dataloader = DataLoader(
+        dataset=train_dataset,
+        batch_sampler=sampler,
         num_workers=args.dataloader_num_workers,
-        shuffle=True
     )
 
     # Scheduler and math around the number of training steps.

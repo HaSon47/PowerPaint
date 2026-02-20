@@ -8,7 +8,7 @@ output_dir: "/mnt/disk2/hachi/New_ouput_7"
 task_prompt:
   indomain_inpainting:
     placeholder_tokens: "P_loc"
-    initializer_token: "P_ctxt"
+    initializer_token: "P_obj"
     num_vectors_per_token: 10
 
 # training data

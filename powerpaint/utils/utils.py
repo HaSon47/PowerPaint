@@ -563,3 +563,35 @@ class ImageProjection(nn.Module):
         image_embeds = image_embeds.reshape(batch_size, self.num_image_text_embeds, -1)
         image_embeds = self.norm(image_embeds)
         return image_embeds
+
+
+def expand_unet_conv_in(unet, extra_in_channels=1, init="mean_scaled"):
+    old = unet.conv_in
+    old_w = old.weight.data
+    old_b = old.bias.data if old.bias is not None else None
+
+    new_in = old.in_channels + extra_in_channels
+    new = nn.Conv2d(
+        new_in, old.out_channels,
+        kernel_size=old.kernel_size, stride=old.stride, padding=old.padding,
+        bias=(old.bias is not None),
+    ).to(old_w.device, dtype=old_w.dtype)
+
+    # copy old weights
+    new.weight.data[:, :old.in_channels] = old_w
+
+    # init new channel(s)
+    if init == "zero":
+        new.weight.data[:, old.in_channels:] = 0
+    elif init == "mean_scaled":
+        mean_w = old_w.mean(dim=1, keepdim=True)  # [out,1,kh,kw]
+        new.weight.data[:, old.in_channels:] = mean_w.repeat(1, extra_in_channels, 1, 1) * 0.1
+    else:
+        nn.init.kaiming_normal_(new.weight.data[:, old.in_channels:])
+
+    if old_b is not None:
+        new.bias.data = old_b.clone()
+
+    unet.conv_in = new
+    unet.config.in_channels = new_in
+    return unet

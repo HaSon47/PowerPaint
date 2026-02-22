@@ -595,3 +595,15 @@ def expand_unet_conv_in(unet, extra_in_channels=1, init="mean_scaled"):
     unet.conv_in = new
     unet.config.in_channels = new_in
     return unet
+
+def make_unet_input(noisy_latents, mask_latent, mask_image_latents, density_latent):
+    """
+    IMPORTANT: giữ đúng thứ tự giống code train của bạn:
+      model_input = cat([noisy_latents, mask, mask_image_latents, density_latent], dim=1)
+    Shapes:
+      noisy_latents: [B,4,h,w]
+      mask_latent:   [B,1,h,w]
+      mask_img_lat:  [B,4,h,w]
+      density_lat:   [B,1,h,w]
+    """
+    return torch.cat([noisy_latents, mask_latent, mask_image_latents, density_latent], dim=1)

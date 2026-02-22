@@ -149,7 +149,7 @@ class SampleItem:
     orig_hw: Tuple[int, int]    # (H, W)
     bucket_hw: Tuple[int, int]  # (Hb, Wb)
 
-def build_index(train_root: str, density_root: str) -> List[SampleItem]:
+def build_index(train_root: str, density_root: str, max_num: int = None) -> List[SampleItem]:
     """
     train_root:
       train/img1/img.png
@@ -160,7 +160,10 @@ def build_index(train_root: str, density_root: str) -> List[SampleItem]:
     items: List[SampleItem] = []
     subdirs = sorted([d for d in os.listdir(train_root) if os.path.isdir(os.path.join(train_root, d))])
 
-    for sid in subdirs:
+    for i, sid in enumerate(subdirs):
+        if max_num:
+            if i > max_num:
+                break
         img_path = os.path.join(train_root, sid, "ground_truth.jpg")
         ann_path = os.path.join(train_root, sid, "annotation.json")
         den_path = os.path.join(density_root, f"{sid.split('_')[0]}.npy")
@@ -182,6 +185,41 @@ def build_index(train_root: str, density_root: str) -> List[SampleItem]:
     if len(items) == 0:
         raise RuntimeError("No valid samples found. Check paths and filenames.")
     return items
+
+def build_index_val(val_txt: str, density_root: str, max_num: int = None) -> List[SampleItem]:
+    items: List[SampleItem] = []
+
+    subdirs = []
+    with open(val_txt, 'r') as f:
+        for line in f:
+            subdirs.append(line.strip())
+
+    for i, sid in enumerate(subdirs):
+        if max_num:
+            if i > max_num:
+                break
+        img_path = os.path.join(sid, "ground_truth.jpg")
+        ann_path = os.path.join(sid, "annotation.json")
+        den_path = os.path.join(density_root, f"{sid.split('/')[-1][:-3]}.npy")
+
+        # read size cheaply
+        with Image.open(img_path) as im:
+            w, h = im.size
+
+        bucket_hw = choose_bucket(h, w)
+        items.append(SampleItem(
+            sample_id=sid,
+            img_path=img_path,
+            ann_path=ann_path,
+            density_path=den_path,
+            orig_hw=(h, w),
+            bucket_hw=bucket_hw,
+        ))
+
+    if len(items) == 0:
+        raise RuntimeError("No valid samples found. Check paths and filenames.")
+    return items
+
 
 # -----------------------------
 # Dataset
@@ -276,8 +314,9 @@ class FSCDataset(Dataset):
         )
 
         # optional density dropout
-        if self.density_dropout_p > 0.0 and self._rng.random() < self.density_dropout_p:
-            density = torch.zeros_like(density)
+        if self.train:
+            if self.density_dropout_p > 0.0 and self._rng.random() < self.density_dropout_p:
+                density = torch.zeros_like(density)
 
         # bucket resize+crop (aligned)
         image, mask, density = bucket_transform(
@@ -287,14 +326,17 @@ class FSCDataset(Dataset):
             rng=self._rng,
         )
 
+        # clamp numeric noise from interpolation – keeps pixel_values ∈ [-1,1]
+        image = image.clamp(0.0, 1.0)
+        
         # SD expects image normalized to [-1, 1] before VAE encode
         pixel_values = image * 2.0 - 1.0
 
-        if random.random() < 0.3:
+        if self.train and (self._rng.random() < 0.0):
             prompt = ""
 
-        promptA = self.task_prompt.indomain_inpainting.placeholder_tokens
-        promptB = self.task_prompt.indomain_inpainting.placeholder_tokens
+        promptA = self.task_prompt.object_inpainting.placeholder_tokens
+        promptB = self.task_prompt.object_inpainting.placeholder_tokens
         promptA, promptB = f"{promptA} {prompt}", f"{promptB} {prompt}"
         prompt = self.pipeline.maybe_convert_prompt(prompt, self.pipeline.tokenizer)
         promptA = self.pipeline.maybe_convert_prompt(promptA, self.pipeline.tokenizer)
@@ -307,6 +349,8 @@ class FSCDataset(Dataset):
             return_tensors="pt",
         ).input_ids
 
+        alpha = torch.tensor((1.0, 0.0))
+
         return {
             "pixel_values": pixel_values,   # [3,Hb,Wb] in [-1,1]
             "mask": mask,                   # [1,Hb,Wb] 0/1
@@ -316,7 +360,8 @@ class FSCDataset(Dataset):
             "id": it.sample_id,
             "input_idsA": input_idsA,
             "input_idsB": input_idsB,
-            "input_ids": input_ids
+            "input_ids": input_ids,
+            "tradeoff": alpha,
         }
 
 class BucketBatchSampler(Sampler[List[int]]):
@@ -369,7 +414,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         self.buckets = sorted(list(self.bucket_to_indices.keys()))
 
     def _bucket_bs(self, bucket_hw: Tuple[int, int]) -> int:
-        if self.by_bucket_sizes is None:
+        if self.by_bucket_sizes is not None:
             return int(self.by_bucket_sizes[bucket_hw])
         return int(self.batch_size)
     

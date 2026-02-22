@@ -5,7 +5,7 @@ import math
 import os
 import shutil
 import inspect
-
+from typing import List, Tuple
 import accelerate
 import numpy as np
 import torch
@@ -29,112 +29,21 @@ from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
-from powerpaint.datasets.fsc_147 import FSCDataset, BucketBatchSampler, build_index
+from powerpaint.datasets.fsc_147 import FSCDataset, BucketBatchSampler, build_index, build_index_val
 from powerpaint.datasets.utils import collate_train
 from powerpaint.models import UNet2DConditionModel
 from powerpaint.pipelines import StableDiffusionInpaintIndomainPipeline
 from powerpaint.utils.utils import TokenizerWrapper, add_tokens, expand_unet_conv_in
 
-# Batch size theo bucket (bạn tự chỉnh theo VRAM)
-by_bucket_sizes = {
-    (512, 512): 12,
-    (512, 768): 8,
-    (512, 1024): 6,
-}
-
-if is_wandb_available():
-    import wandb
-    from dotenv import load_dotenv
-    load_dotenv()
-    wandb.login()
+from eval.counterfactual import infer_val_counterfactual
+from eval.pipe_counterfactual import infer_counterfactual_3
+# if is_wandb_available():
+#     import wandb
+#     from dotenv import load_dotenv
+#     load_dotenv()
+#     wandb.login()
 
 logger = get_logger(__name__, log_level="INFO")
-
-def log_validation(pipe, args, accelerator, step):
-    logger.info("Running validation... ")
-
-    # pipe = StableDiffusionInpaintIndomainPipeline.from_pretrained(
-    #     args.base_model_path,
-    #     # text_encoder=accelerator.unwrap_model(text_encoder),
-    #     # tokenizer=tokenizer,
-    #     # unet=accelerator.unwrap_model(unet),
-    #     # safety_checker=None,
-    #     # revision=args.revision,
-    #     # variant=args.variant,
-    #     torch_dtype=weight_dtype,
-    #     local_files_only=True, # load files from local cache
-    # )
-    # pipe.text_encoder = text_encoder,
-    # pipe.tokenizer = tokenizer
-    pipe.set_progress_bar_config(disable=True)
-    pipe.unet.eval()
-    pipe.text_encoder.eval()
-
-
-    # load validation images
-    image_logs = []
-    for case in args.validation_data.cases:
-        validation_prompts = case.prompt
-        validation_image = Image.open(os.path.join(args.validation_data.data_root, case.image)).convert("RGB")
-        validation_mask = Image.open(os.path.join(args.validation_data.data_root, case.mask))
-        validation_mask = validation_mask.resize((validation_image.size[0], validation_image.size[1]), Image.NEAREST)
-        validation_mask = validation_mask.convert("L")
-        hole_value = (0, 0, 0)
-        validation_image = Image.composite(
-            Image.new("RGB", (validation_image.size[0], validation_image.size[1]), hole_value),
-            validation_image,
-            validation_mask.convert("L"),
-        )
-        image_grid = Image.new(
-            "RGB",
-            (validation_image.size[0] * (1 + len(validation_prompts)), validation_image.size[1]),
-            (255, 255, 255),
-        )
-        image_grid.paste(validation_image, (0, 0))
-        for i, p in enumerate(validation_prompts):
-            with torch.no_grad():
-                with torch.autocast(accelerator.device.type):
-                    image = pipe(
-                        promptA=p.promptA,
-                        promptB=p.promptB,
-                        tradoff=p.tradeoff,
-                        tradoff_nag=p.tradeoff,
-                        negative_promptA=p.get("negative_promptA", None),
-                        negative_promptB=p.get("negative_promptB", None),
-                        image=validation_image,
-                        mask=validation_mask,
-                        num_inference_steps=45,
-                    ).images[0]
-            image_logs.append(image)
-            image_grid.paste(image, (validation_image.size[0] * (i + 1), 0))
-        save_path = os.path.join(
-            args.output_dir,
-            f"{case.name}_{str(step).zfill(3)}_{os.path.basename(case.image)}"
-        )
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        image_grid.save(save_path)
-
-       # image_grid.save(os.path.join(args.output_dir, f"{case.name}_{str(step).zfill(3)}_{os.path.basename(case.image)}"))
-
-    for tracker in accelerator.trackers:
-        if tracker.name == "tensorboard":
-            np_images = np.stack([np.asarray(img) for img in image_logs])
-            tracker.writer.add_images("validation", np_images, step, dataformats="NHWC")
-        elif tracker.name == "wandb":
-            tracker.log(
-                {
-                    "validation": [
-                        wandb.Image(image, caption=f"{p.task}")
-                        for image, p in zip(image_logs, args.validation_data.cases[0].prompt)
-                    ]
-                }
-            )
-        else:
-            logger.warning(f"image logging not implemented for {tracker.name}")
-
-    pipe.unet.train()
-    pipe.text_encoder.train()
-    #return image_logs
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -391,17 +300,240 @@ def parse_args():
             args.__dict__[k] = v
     return args
 
+@torch.no_grad()
+def vae_encode(vae, pixel_values: torch.Tensor) -> torch.Tensor:
+    latents = vae.encode(pixel_values).latent_dist.sample()
+    latents = latents * vae.config.scaling_factor
+    return latents
+
+@torch.no_grad()
+def vae_decode(vae, latents: torch.Tensor) -> torch.Tensor:
+    latents = latents / vae.config.scaling_factor
+    image = vae.decode(latents).sample #[-1, 1]
+    return image
+
+# def to_latent_mask(mask: torch.Tensor, lh: int, lw: int) -> torch.Tensor:
+#     return F.interpolate(mask, size=(lh, lw), mode="nearest")
+
+def to_latent_mask(
+    mask: torch.Tensor,
+    lh: int,
+    lw: int,
+    *,
+    soft: bool = False,
+    blur_kernel: int = 0,   # 0 = no blur, 3/5/7... = avg blur kernel size
+    blur_iters: int = 1,    # số lần blur (1-3 thường đủ)
+) -> torch.Tensor:
+    """
+    mask: [B,1,H,W] hoặc [B,H,W] hoặc [H,W]
+    return: [B,1,lh,lw] float in [0,1]
+      - soft=False  -> nearest, mask gần như nhị phân
+      - soft=True   -> bilinear (+ optional blur) để làm mềm biên
+    """
+    # --- normalize shape to [B,1,H,W]
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0).unsqueeze(0)
+    elif mask.dim() == 3:
+        mask = mask.unsqueeze(1)
+    elif mask.dim() != 4:
+        raise ValueError(f"mask must be 2D/3D/4D, got shape={tuple(mask.shape)}")
+
+    mask = mask.float()
+
+    # --- resize
+    if soft:
+        # bilinear tạo soft edges (giá trị 0..1)
+        mask = F.interpolate(mask, size=(lh, lw), mode="bilinear", align_corners=False)
+        mask = mask.clamp(0.0, 1.0)
+
+        # --- optional blur boundary (giảm seam/halo ở rìa)
+        if blur_kernel and blur_kernel > 1:
+            if blur_kernel % 2 == 0:
+                raise ValueError("blur_kernel should be odd (e.g., 3,5,7).")
+            pad = blur_kernel // 2
+            for _ in range(max(1, blur_iters)):
+                mask = F.avg_pool2d(mask, kernel_size=blur_kernel, stride=1, padding=pad)
+            mask = mask.clamp(0.0, 1.0)
+    else:
+        # nearest giữ mask nhị phân (phù hợp conditioning chuẩn inpainting)
+        mask = F.interpolate(mask, size=(lh, lw), mode="nearest")
+
+    return mask
+
+def to_latent_density(density: torch.Tensor, lh: int, lw: int) -> torch.Tensor:
+    return F.interpolate(density, size=(lh,lw), mode="bilinear", align_corners=False)
+
+def set_trainable_params(unet, text_encoder, vae, train_mode: str):
+    """
+    Set requires_grad for modules according to train_mode.
+
+    Recommended modes for your use case (SD1.5 inpaint + extra density channel):
+      - "conv_in":          train only unet.conv_in
+      - "conv_in+down0":    train unet.conv_in + unet.down_blocks.0
+      - "conv_in+down01":   train unet.conv_in + unet.down_blocks.0 + unet.down_blocks.1
+      - "unet":             train full UNet
+      - "unet+te":          train UNet + text encoder
+      - "full":             train UNet + text encoder + VAE
+
+    By default (common practice): freeze VAE + text encoder unless train_mode includes them.
+
+    Returns:
+      A dict summary with counts (trainable/all) for each component.
+    """
+    # ---- reset all ----
+    if vae is not None:
+        vae.requires_grad_(False)
+        vae.eval()
+    if text_encoder is not None:
+        text_encoder.requires_grad_(False)
+        text_encoder.eval()
+
+    unet.requires_grad_(False)
+    unet.train()  # we still want UNet in train mode if any params train
+
+    def _enable_prefix(module, prefix: str):
+        for name, p in module.named_parameters():
+            if name.startswith(prefix):
+                p.requires_grad = True
+
+    def _enable_any(module, predicate):
+        for name, p in module.named_parameters():
+            if predicate(name):
+                p.requires_grad = True
+
+    # ---- parse mode ----
+    mode = train_mode.strip().lower()
+
+    # UNet selections
+    if mode in ["conv_in", "convin"]:
+        _enable_prefix(unet, "conv_in")
+
+    elif mode in ["conv_in+down0", "convin+down0", "conv_in_down0"]:
+        _enable_prefix(unet, "conv_in")
+        _enable_prefix(unet, "down_blocks.0")
+
+    elif mode in ["conv_in+down01", "convin+down01", "conv_in_down01"]:
+        _enable_prefix(unet, "conv_in")
+        _enable_prefix(unet, "down_blocks.0")
+        _enable_prefix(unet, "down_blocks.1")
+
+    elif mode in ["unet", "full_unet"]:
+        unet.requires_grad_(True)
+
+    elif mode in ["unet+te", "unet+text", "unet+text_encoder"]:
+        unet.requires_grad_(True)
+        if text_encoder is None:
+            raise ValueError("text_encoder is None but train_mode requests it.")
+        text_encoder.requires_grad_(True)
+        text_encoder.train()
+
+    elif mode in ["full", "all", "unet+te+vae"]:
+        unet.requires_grad_(True)
+        if text_encoder is None:
+            raise ValueError("text_encoder is None but train_mode requests it.")
+        if vae is None:
+            raise ValueError("vae is None but train_mode requests it.")
+        text_encoder.requires_grad_(True)
+        vae.requires_grad_(True)
+        text_encoder.train()
+        vae.train()
+
+    # Optional extra modes you may find useful:
+    # - "attn_lora_like": train only attention blocks (without LoRA)
+    elif mode in ["attn", "attention"]:
+        # Train all attention (self+cross) weights inside UNet
+        # This is heavier than LoRA but still less than full unet.
+        _enable_any(unet, lambda n: (".attn" in n) or ("attentions" in n) or ("transformer_blocks" in n))
+
+    elif mode in ["conv_in+attn", "convin+attn"]:
+        _enable_prefix(unet, "conv_in")
+        _enable_any(unet, lambda n: (".attn" in n) or ("attentions" in n) or ("transformer_blocks" in n))
+
+    else:
+        raise ValueError(
+            f"Unknown train_mode='{train_mode}'. "
+            f"Supported: conv_in, conv_in+down0, conv_in+down01, unet, unet+te, full, attn, conv_in+attn."
+        )
+    
+    # If UNet has no trainable params after selection, keep it eval to save small overhead
+    if not any(p.requires_grad for p in unet.parameters()):
+        unet.eval()
+
+    # ---- return a small summary (useful for logs) ----
+    def _count_params(module):
+        if module is None:
+            return (0, 0)
+        all_n = sum(p.numel() for p in module.parameters())
+        train_n = sum(p.numel() for p in module.parameters() if p.requires_grad)
+        return train_n, all_n
+
+    unet_train, unet_all = _count_params(unet)
+    te_train, te_all = _count_params(text_encoder)
+    vae_train, vae_all = _count_params(vae)
+
+    return {
+        "unet_trainable": unet_train,
+        "unet_all": unet_all,
+        "text_encoder_trainable": te_train,
+        "text_encoder_all": te_all,
+        "vae_trainable": vae_train,
+        "vae_all": vae_all,
+        "mode": train_mode,
+    }
+
+def get_trainable_params(unet, text_encoder=None, vae=None) -> List[torch.nn.Parameter]:
+    """
+    Return a flat list of trainable parameters (requires_grad=True) across modules.
+    Use this to build optimizer / gradient clipping.
+    """
+    params: List[torch.nn.Parameter] = []
+    for module in (unet, text_encoder, vae):
+        if module is None:
+            continue
+        for p in module.parameters():
+            if p.requires_grad:
+                params.append(p)
+
+    # Safety: avoid empty optimizer
+    if len(params) == 0:
+        raise RuntimeError("No trainable parameters found. Check set_trainable_params(train_mode=...).")
+    return params
+
+# def infer_before(pipe, args, accelerator):
+#     pass
+
+# @torch.no_grad()
+# def inpaint_with_density(pipe, batch_val, accelerator, num_inference_steps: int = 30, guidance_scale: float = 7.5):
+#     pixel_values = batch_val["pixel_values"]
+#     mask = batch_val["mask"]
+#     density = batch_val["density"]
+
+def weighted_latent_mse(model_pred, target, mask_latent, masked_weight=5.0, known_weight=1.0, eps=1e-8):
+    """
+    model_pred, target: [B, C, H, W]  (C thường = 4 với SD1.5 latent)
+    mask_latent:        [B, 1, H, W]  (1 = masked/hole, 0 = known)
+    returns:
+      loss_mean: scalar
+      loss_per_sample: [B]
+    """
+    # đảm bảo float + đúng device
+    mask = mask_latent.to(dtype=model_pred.dtype, device=model_pred.device)
+    # weight map: [B,1,H,W]
+    w = known_weight + (masked_weight - known_weight) * mask
+    # expand sang channel: [B,C,H,W]
+    w = w.expand(-1, model_pred.shape[1], -1, -1)
+
+    mse = (model_pred - target) ** 2  # [B,C,H,W]
+
+    # weighted mean per-sample (normalize theo tổng weight)
+    num = (mse * w).sum(dim=(1, 2, 3))
+    den = w.sum(dim=(1, 2, 3)).clamp_min(eps)
+    loss_per_sample = num / den  # [B]
+
+    return loss_per_sample.mean(), loss_per_sample
+
 def main():
     args = parse_args()
-    if args.non_ema_revision is not None:
-        deprecate(
-            "non_ema_revision!=None",
-            "0.15.0",
-            message=(
-                "Downloading 'non_ema' weights from revision branches of the Hub is deprecated. Please make sure to"
-                " use `--variant=non_ema` instead."
-            ),
-        )
 
     logging_dir = os.path.join(args.output_dir, args.logging_dir)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
@@ -477,85 +609,45 @@ def main():
     load_model(pipe.unet, os.path.join(args.ppt1_checkpoint, "unet/unet.safetensors"), strict=False)
     load_model(pipe.text_encoder, os.path.join(args.ppt1_checkpoint, "text_encoder/text_encoder.safetensors"),strict=False )
 
-    # add new learned task tokens
-    add_tokens(
-        tokenizer=pipe.tokenizer,
-        text_encoder=pipe.text_encoder,
-        placeholder_tokens=["P_loc"],
-        initialize_tokens=["P_ctxt"],
-        num_vectors_per_token=10,
-    )
+    # # Infer to check
+    # if accelerator.is_main_process:
+    #     infer_before(pipe, args, accelerator)
+
     # add the expanded channel
     pipe.unet = expand_unet_conv_in(pipe.unet, extra_in_channels=1, init="mean_scaled")
-    
-    vae, unet, tokenizer, noise_scheduler = pipe.vae, pipe.unet, pipe.tokenizer, pipe.scheduler
-    text_encoder= pipe.text_encoder.to(torch.float32)
 
+    vae, tokenizer, noise_scheduler = pipe.vae, pipe.tokenizer, pipe.scheduler
+    text_encoder, unet = pipe.text_encoder.to(torch.float32), pipe.unet.to(torch.float32)
 
-    # Freeze all parameters except for the token embeddings of p_loc
-    unet.requires_grad_(False)
-    vae.requires_grad_(False)
-    text_encoder.text_model.requires_grad_(True)
-    text_encoder.text_model.encoder.requires_grad_(False)
-    text_encoder.text_model.final_layer_norm.requires_grad_(False)
-    text_encoder.text_model.embeddings.position_embedding.requires_grad_(False)
-    text_encoder.text_model.embeddings.token_embedding.trainable_embeddings.P_ctxt.requires_grad_(False)
-    text_encoder.text_model.embeddings.token_embedding.trainable_embeddings.P_obj.requires_grad_(False)
-    text_encoder.text_model.embeddings.token_embedding.trainable_embeddings.P_shape.requires_grad_(False)
-    text_encoder.text_model.embeddings.token_embedding.wrapped.weight.requires_grad_(False)
+    set_trainable_params(unet, text_encoder, vae, args.train_mode)
 
-    for p in unet.conv_in.parameters():
-        p.requires_grad = True
+    # Taken from [Sayak Paul's Diffusers PR #6511](https://github.com/huggingface/diffusers/pull/6511/files)
+    def unwrap_model(model):
+        model = accelerator.unwrap_model(model)
+        model = model._orig_mod if is_compiled_module(model) else model
+        return model
 
-    # Check what we set grad True
-    for name, p in text_encoder.named_parameters():
-        if p.requires_grad:
-            logger.info(f'{name} {p.shape}')
-
-
-    # # Don't need to create EMA for the unet because we just finetune text encoder
-    # if args.use_ema:
-    #     ema_unet = UNet2DConditionModel.from_pretrained(
-    #         args.ppt1_checkpoint, subfolder="unet", torch_dtype=weight_dtype, local_files_only=True
-    #     )
-    #     ema_unet = EMAModel(ema_unet.parameters(), model_cls=UNet2DConditionModel, model_config=ema_unet.config)
-
-
-    # # Taken from [Sayak Paul's Diffusers PR #6511](https://github.com/huggingface/diffusers/pull/6511/files)
-    # def unwrap_model(model):
-    #     model = accelerator.unwrap_model(model)
-    #     model = model._orig_mod if is_compiled_module(model) else model
-    #     return model
-    
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
                 for model in models:
-                    sub_dir = "text_encoder"
+                    sub_dir = "unet" if isinstance(model, type(unwrap_model(unet))) else "text_encoder"
+                    if sub_dir == "unet":
+                        model.register_to_config(in_channels=10)
                     model.save_pretrained(os.path.join(output_dir, sub_dir))
 
                     # make sure to pop weight so that corresponding model is not saved again
                     weights.pop()
 
-        # def load_model_hook(models, input_dir):
-        #     while len(models) > 0:
-        #         model = models.pop()
-
-        #         if isinstance(model, type(unwrap_model(text_encoder))):
-        #             # load transformers style into model
-        #             loaded_model = text_encoder_cls.from_pretrained(input_dir, subfolder="text_encoder")
-        #             model.config = load_model.config
-
-        #         model.load_state_dict(load_model.state_dict())
-        #         del load_model
 
         accelerator.register_save_state_pre_hook(save_model_hook)
-        # accelerator.register_load_state_pre_hook(load_model_hook)
 
     if args.gradient_checkpointing:
+        unet.train()
         text_encoder.gradient_checkpointing_enable()
+        unet.enable_gradient_checkpointing()
 
     # Enable TF32 for faster training on Ampere GPUs,
     # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
@@ -566,25 +658,11 @@ def main():
         args.learning_rate = (
             args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
-
-    # Initialize the optimizer
-    if args.use_8bit_adam:
-        try:
-            import bitsandbytes as bnb
-        except ImportError:
-            raise ImportError(
-                "Please install bitsandbytes to use 8-bit Adam. You can do so by running `pip install bitsandbytes`"
-            )
-        optimizer_cls = bnb.optim.AdamW8bit
-    else:
-        optimizer_cls = torch.optim.AdamW
-
-    # get trainable parameters
-    embedding_layer = text_encoder.get_input_embeddings()
-    trainable_prompt = embedding_layer.trainable_embeddings['P_loc']
-
+    
+    optimizer_cls = torch.optim.AdamW
+    parameters = get_trainable_params(unet, text_encoder, vae)
     optimizer = optimizer_cls(
-        [trainable_prompt],
+        parameters,
         lr=args.learning_rate,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
@@ -592,9 +670,7 @@ def main():
     )
 
     # Preparing datasets and dataloader for training
-    train_root = "/mnt/disk2/hachi/data/train"
-    density_root = "/mnt/disk2/hachi/data/gt_density_map_adaptive_384_VarV2"
-    items = build_index(train_root, density_root)
+    items = build_index(args.train_root, args.density_root)
     train_dataset = FSCDataset(items, pipeline=pipe, task_prompt=args.task_prompt)
 
     by_bucket_sizes = {
@@ -615,6 +691,20 @@ def main():
         num_workers=args.dataloader_num_workers,
     )
 
+    val_items = build_index_val('./val.txt', args.density_root, max_num=100)
+    val_dataset = FSCDataset(val_items, pipeline=pipe, task_prompt=args.task_prompt, train=False)
+    val_sampler = BucketBatchSampler(
+        dataset=val_dataset,
+        by_bucket_sizes=by_bucket_sizes,
+        shuffle=False,
+        drop_last=False,
+        bucket_sampling="proportional"
+    )
+    val_dataloader = DataLoader(
+        dataset=val_dataset,
+        batch_sampler=val_sampler,
+        num_workers=args.dataloader_num_workers,
+    )
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader)/args.gradient_accumulation_steps)
@@ -634,7 +724,7 @@ def main():
         unet, text_encoder, optimizer, train_dataloader, lr_scheduler
     )
 
-    # Move vae to gpu and cast to weight_dtype
+    # Move text_encode and vae to gpu and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -681,21 +771,8 @@ def main():
         disable=not accelerator.is_local_main_process,
     )
 
+    unet.train()
     text_encoder.train()
-
-    # Check what we set grad True
-    for name, p in unet.named_parameters():
-        if p.requires_grad:
-            logger.info(f'{name} {p.shape}')
-
-    pipe.safety_checker = None
-    if accelerator.is_main_process:
-        log_validation(
-            pipe,
-            args,
-            accelerator,
-            global_step,
-        )
 
     # Check what we set grad True
     for name, p in unet.named_parameters():
@@ -704,13 +781,11 @@ def main():
 
     for _ in range(first_epoch, args.num_train_epochs):
         train_loss = 0.0
-
         for batch in train_dataloader:
-
-            with accelerator.accumulate(text_encoder):
+            with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
+                latents = vae_encode(vae, batch["pixel_values"].to(weight_dtype))
+                bsz, _, lh, lw  = latents.shape
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
@@ -730,10 +805,12 @@ def main():
                 mask_image = batch["pixel_values"] * (batch["mask"] < 0.5)
                 # convert the hole value from 0 to -1 due to value range [-1, 1]
                 mask_image = mask_image - batch["mask"]
-                mask_image_latents = vae.encode(mask_image.to(weight_dtype)).latent_dist.sample()
-                mask_image_latents = mask_image_latents * vae.config.scaling_factor
+                mask_image_latents = vae_encode(vae, mask_image.to(weight_dtype))
 
-                mask = torch.nn.functional.interpolate(batch["mask"], size=(64, 64))
+                # mask/density to latent resolution
+                # mask cho model input (binary)
+                mask = to_latent_mask(batch["mask"], lh, lw, soft=False)
+                density_latent = to_latent_density(batch["density"], lh, lw)
 
                 # Add noise to the latents according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
@@ -742,7 +819,7 @@ def main():
                 else:
                     noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                model_input = torch.cat([noisy_latents, mask, mask_image_latents], dim=1)
+                model_input = torch.cat([noisy_latents, mask, mask_image_latents, density_latent], dim=1)
 
                 # Get the text embedding for conditioning unet, (bs, 77, 768)
                 encoder_hidden_statesA = text_encoder(batch["input_idsA"], return_dict=False)[0]
@@ -768,22 +845,39 @@ def main():
                 # Predict the noise residual and compute loss
                 model_pred = unet(model_input, timesteps, encoder_hidden_states, return_dict=False)[0]
 
+                # mask cho loss weighting (soft optional)
+                mask_w_latent = to_latent_mask(
+                    batch["mask"], lh, lw,
+                    soft=True,        # bool
+                    blur_kernel=5,  # 0/3/5
+                    blur_iters=2,    # 1-3
+                )
+                # hyperparams (gợi ý): masked_weight=5~10, known_weight=1
+                masked_w = getattr(args, "masked_loss_weight", 5.0)
+                known_w  = getattr(args, "known_loss_weight", 1.0)
+
                 if args.snr_gamma is None:
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                    loss, _ = weighted_latent_mse(
+                        model_pred.float(),
+                        target.float(),
+                        mask_latent=mask_w_latent,              # mask đã là latent-res [B,1,lh,lw]
+                        masked_weight=masked_w,
+                        known_weight=known_w,
+                    )
                 else:
-                    # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-                    # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-                    # This is discussed in Section 4.2 of the same paper.
                     snr = compute_snr(timesteps)
                     mse_loss_weights = (
                         torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+                    )  # [B]
+
+                    _, loss_per_sample = weighted_latent_mse(
+                        model_pred.float(),
+                        target.float(),
+                        mask_latent=mask_w_latent,
+                        masked_weight=masked_w,
+                        known_weight=known_w,
                     )
-                    # We first calculate the original loss. Then we mean over the non-batch dimensions and
-                    # rebalance the sample-wise losses with their respective loss weights.
-                    # Finally, we take the mean of the rebalanced loss.
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-                    loss = loss.mean()
+                    loss = (loss_per_sample * mse_loss_weights).mean()
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -793,7 +887,7 @@ def main():
                 # Backpropagate
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_([trainable_prompt], args.max_grad_norm)
+                    accelerator.clip_grad_norm_(parameters, args.max_grad_norm)
 
                 optimizer.step()
                 lr_scheduler.step()
@@ -809,23 +903,45 @@ def main():
 
                 if accelerator.is_main_process:
                     if global_step % args.checkpointing_steps == 0:
-                        unwrapped_text_encoder = accelerator.unwrap_model(text_encoder)
-                        # Chỉ trích xuất state_dict của phần trainable
-                        trainable_state_dict = {
-                            k: v for k, v in unwrapped_text_encoder.state_dict().items()
-                            if "trainable_embeddings" in k
-                        }
-                        save_path = os.path.join(args.output_dir, f"task_prompt_step_{global_step}.pt")
-                        accelerator.save(trainable_state_dict, save_path)
+                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
+                        if args.checkpoints_total_limit is not None:
+                            checkpoints = os.listdir(args.output_dir)
+                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
+                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+
+                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
+                            if len(checkpoints) >= args.checkpoints_total_limit:
+                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                                removing_checkpoints = checkpoints[0:num_to_remove]
+
+                                logger.info(
+                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
+                                )
+                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+
+                                for removing_checkpoint in removing_checkpoints:
+                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    shutil.rmtree(removing_checkpoint)
+                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
-                    
-                    if hasattr(args, "validation_data") is not None and global_step % args.validation_steps == 0:
-                        log_validation(
-                            pipe,
-                            args,
-                            accelerator,
-                            global_step,
-                        )
+
+                        # infer val
+                        out_root = os.path.join(args.output_dir, "val_infer_cf")
+                        for bi, batch in enumerate(val_dataloader):
+                            stats = infer_counterfactual_3(
+                                pipe, batch,
+                                out_dir=out_root,
+                                global_step=global_step,
+                                accelerator=accelerator,
+                                seed=1234 + bi,
+                                tradoff=1.0,
+                                tradoff_nag=1.0,
+                                save_k=4,
+                            )
+                        # infer_val_counterfactual(pipe, unet, text_encoder, vae, val_dataloader, args, accelerator,
+                        #      global_step=global_step, weight_dtype=weight_dtype,
+                        #      num_batches=2, steps=30, seed=1234)
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -834,16 +950,8 @@ def main():
                 break
 
     accelerator.wait_for_everyone()
-    if accelerator.is_main_process:
-        if hasattr(args, "validation_data"):
-            logger.info("Running inference...")
-            log_validation(pipe, args, accelerator, global_step)
 
     accelerator.end_training()
 
 if __name__ == "__main__":
     main()
-
-
-
-

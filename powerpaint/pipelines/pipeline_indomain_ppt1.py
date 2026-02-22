@@ -152,6 +152,44 @@ def prepare_mask_and_masked_image(image, mask, height, width, return_image: bool
 
     return mask, masked_image
 
+def prepare_density(density, height, width):
+    """
+    Similar to :func:`prepare_mask_and_masked_image` but for the additional
+    continuous density channel used by the 10‑channel UNet.
+    The returned tensor has shape ``batch x 1 x height x width`` and dtype
+    ``torch.float32``; values are in ``[0,1]``.
+
+    Raises:
+        ValueError: if ``density`` is ``None``.
+    """
+    if density is None:
+        raise ValueError("`density` input cannot be undefined for a 10‑channel UNet.")
+
+    if isinstance(density, torch.Tensor):
+        # handle different possible shapes
+        if density.ndim == 2:  # H x W
+            density = density.unsqueeze(0).unsqueeze(0)
+        elif density.ndim == 3:
+            # either (1,H,W) or (B,H,W)
+            if density.shape[0] == 1:
+                density = density.unsqueeze(0)
+            else:
+                density = density.unsqueeze(1)
+        assert density.ndim == 4, "Density must have 4 dimensions"
+        density = density.to(dtype=torch.float32)
+    else:
+        # PIL / numpy
+        if isinstance(density, (PIL.Image.Image, np.ndarray)):
+            density = [density]
+        if isinstance(density, list) and isinstance(density[0], PIL.Image.Image):
+            density = [i.resize((width, height), resample=PIL.Image.LANCZOS) for i in density]
+            density = np.concatenate([np.array(m.convert("L"))[None, None, :] for m in density], axis=0)
+        elif isinstance(density, list) and isinstance(density[0], np.ndarray):
+            density = np.concatenate([m[None, None, :] for m in density], axis=0)
+        density = density.astype(np.float32) / 255.0
+        density = torch.from_numpy(density)
+
+    return density
 
 class StableDiffusionInpaintIndomainPipeline(
     DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin
@@ -709,6 +747,40 @@ class StableDiffusionInpaintIndomainPipeline(
         masked_image_latents = masked_image_latents.to(device=device, dtype=dtype)
         return mask, masked_image_latents
 
+    def prepare_density_latents(
+        self,
+        density,
+        batch_size,
+        height,
+        width,
+        dtype,
+        device,
+        generator,
+        do_classifier_free_guidance,
+    ):
+        """
+        Resize/duplicate the density map and cast it to ``dtype``.  This is the
+        analogue of ``prepare_mask_latents`` for the extra channel.
+        """
+        density = torch.nn.functional.interpolate(
+            density, size=(height // self.vae_scale_factor, width // self.vae_scale_factor), mode="bilinear", align_corners=False
+        )
+        density = density.to(device=device, dtype=dtype)
+
+        if density.shape[0] < batch_size:
+            if not batch_size % density.shape[0] == 0:
+                raise ValueError(
+                    "The passed density maps and the required batch size don't match. "
+                    "Density maps are supposed to be duplicated to a total batch size "
+                    f"of {batch_size}, but {density.shape[0]} were passed. "
+                    "Make sure the number of maps that you pass is divisible by the "
+                    "total requested batch size."
+                )
+            density = density.repeat(batch_size // density.shape[0], 1, 1, 1)
+
+        density = torch.cat([density] * 2) if do_classifier_free_guidance else density
+        return density
+    
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img.StableDiffusionImg2ImgPipeline.get_timesteps
     def get_timesteps(self, num_inference_steps, strength, device):
         # get the original timestep using init_timestep
@@ -726,6 +798,7 @@ class StableDiffusionInpaintIndomainPipeline(
         promptB: Union[str, List[str]] = None,
         image: Union[torch.FloatTensor, PIL.Image.Image] = None,
         mask: Union[torch.FloatTensor, PIL.Image.Image] = None,
+        density: Union[torch.FloatTensor, PIL.Image.Image] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         strength: float = 1.0,
@@ -927,6 +1000,12 @@ class StableDiffusionInpaintIndomainPipeline(
         num_channels_unet = self.unet.config.in_channels
         return_image_latents = num_channels_unet == 4
 
+        # Preprocess density
+        if num_channels_unet == 10:
+            density = prepare_density(density, height, width)
+        else:
+            print("num_channels_unet == 9 --- khong ho tro density ")
+
         latents_outputs = self.prepare_latents(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -961,22 +1040,36 @@ class StableDiffusionInpaintIndomainPipeline(
             do_classifier_free_guidance,
         )
 
+        if density is not None:
+            density_latents = self.prepare_density_latents(
+                density,
+                batch_size * num_images_per_prompt,
+                height,
+                width,
+                prompt_embeds.dtype,
+                device,
+                generator,
+                do_classifier_free_guidance,
+            )
+        else:
+            density_latents = None
+
         # 8. Check that sizes of mask, masked image and latents match
-        if num_channels_unet == 9:
-            # default case for runwayml/stable-diffusion-inpainting
+        if num_channels_unet == 9 or num_channels_unet == 10:
             num_channels_mask = mask.shape[1]
             num_channels_masked_image = masked_image_latents.shape[1]
-            if num_channels_latents + num_channels_mask + num_channels_masked_image != self.unet.config.in_channels:
+            extra = density_latents.shape[1] if density_latents is not None else 0
+            if num_channels_latents + num_channels_mask + num_channels_masked_image + extra != self.unet.config.in_channels:
                 raise ValueError(
                     f"Incorrect configuration settings! The config of `pipeline.unet`: {self.unet.config} expects"
                     f" {self.unet.config.in_channels} but received `num_channels_latents`: {num_channels_latents} +"
-                    f" `num_channels_mask`: {num_channels_mask} + `num_channels_masked_image`: {num_channels_masked_image}"
-                    f" = {num_channels_latents+num_channels_masked_image+num_channels_mask}. Please verify the config of"
+                    f" `num_channels_mask`: {num_channels_mask} + `num_channels_masked_image`: {num_channels_masked_image} + `num_channels_density`: {extra}"
+                    f" = {num_channels_latents+num_channels_masked_image+num_channels_mask+extra}. Please verify the config of"
                     " `pipeline.unet` or your `mask_image` or `image` input."
                 )
         elif num_channels_unet != 4:
             raise ValueError(
-                f"The unet {self.unet.__class__} should have either 4 or 9 input channels, not {self.unet.config.in_channels}."
+                f"The unet {self.unet.__class__} should have either 4 or 9 or 10 input channels, not {self.unet.config.in_channels}."
             )
 
         # 9. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -994,7 +1087,10 @@ class StableDiffusionInpaintIndomainPipeline(
 
                 if num_channels_unet == 9:
                     latent_model_input = torch.cat([latent_model_input, mask, masked_image_latents], dim=1)
-
+                elif num_channels_unet == 10:
+                    latent_model_input = torch.cat(
+                        [latent_model_input, mask, masked_image_latents, density_latents], dim=1
+                    )
                 # predict the noise residual
                 if task_class is not None:
                     noise_pred = self.unet(

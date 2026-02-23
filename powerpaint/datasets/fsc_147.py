@@ -208,7 +208,7 @@ def build_index_val(val_txt: str, density_root: str, max_num: int = None) -> Lis
 
         bucket_hw = choose_bucket(h, w)
         items.append(SampleItem(
-            sample_id=sid,
+            sample_id=sid.split('/')[-1],
             img_path=img_path,
             ann_path=ann_path,
             density_path=den_path,

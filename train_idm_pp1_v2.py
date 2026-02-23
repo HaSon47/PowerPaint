@@ -35,7 +35,6 @@ from powerpaint.models import UNet2DConditionModel
 from powerpaint.pipelines import StableDiffusionInpaintIndomainPipeline
 from powerpaint.utils.utils import TokenizerWrapper, add_tokens, expand_unet_conv_in
 
-from eval.counterfactual import infer_val_counterfactual
 from eval.pipe_counterfactual import infer_counterfactual_3
 # if is_wandb_available():
 #     import wandb
@@ -636,7 +635,7 @@ def main():
                     sub_dir = "unet" if isinstance(model, type(unwrap_model(unet))) else "text_encoder"
                     if sub_dir == "unet":
                         model.register_to_config(in_channels=10)
-                    model.save_pretrained(os.path.join(output_dir, sub_dir))
+                        model.save_pretrained(os.path.join(output_dir, sub_dir))
 
                     # make sure to pop weight so that corresponding model is not saved again
                     weights.pop()
@@ -691,7 +690,8 @@ def main():
         num_workers=args.dataloader_num_workers,
     )
 
-    val_items = build_index_val('./val.txt', args.density_root, max_num=100)
+    val_items = build_index_val('./val_2.txt', args.density_root, max_num=100)
+    # val_items = build_index(args.val_root, args.density_root, max_num=100)
     val_dataset = FSCDataset(val_items, pipeline=pipe, task_prompt=args.task_prompt, train=False)
     val_sampler = BucketBatchSampler(
         dataset=val_dataset,
@@ -845,39 +845,59 @@ def main():
                 # Predict the noise residual and compute loss
                 model_pred = unet(model_input, timesteps, encoder_hidden_states, return_dict=False)[0]
 
-                # mask cho loss weighting (soft optional)
-                mask_w_latent = to_latent_mask(
-                    batch["mask"], lh, lw,
-                    soft=True,        # bool
-                    blur_kernel=5,  # 0/3/5
-                    blur_iters=2,    # 1-3
-                )
-                # hyperparams (gợi ý): masked_weight=5~10, known_weight=1
-                masked_w = getattr(args, "masked_loss_weight", 5.0)
-                known_w  = getattr(args, "known_loss_weight", 1.0)
+                # # mask cho loss weighting (soft optional)
+                # mask_w_latent = to_latent_mask(
+                #     batch["mask"], lh, lw,
+                #     soft=True,        # bool
+                #     blur_kernel=5,  # 0/3/5
+                #     blur_iters=2,    # 1-3
+                # )
+                # # hyperparams (gợi ý): masked_weight=5~10, known_weight=1
+                # masked_w = getattr(args, "masked_loss_weight", 5.0)
+                # known_w  = getattr(args, "known_loss_weight", 1.0)
 
+                # loss
+                # ## Loss forcus on mask hole
+                # if args.snr_gamma is None:
+                #     loss, _ = weighted_latent_mse(
+                #         model_pred.float(),
+                #         target.float(),
+                #         mask_latent=mask_w_latent,              # mask đã là latent-res [B,1,lh,lw]
+                #         masked_weight=masked_w,
+                #         known_weight=known_w,
+                #     )
+                # else:
+                #     snr = compute_snr(timesteps)
+                #     mse_loss_weights = (
+                #         torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+                #     )  # [B]
+
+                #     _, loss_per_sample = weighted_latent_mse(
+                #         model_pred.float(),
+                #         target.float(),
+                #         mask_latent=mask_w_latent,
+                #         masked_weight=masked_w,
+                #         known_weight=known_w,
+                #     )
+                #     loss = (loss_per_sample * mse_loss_weights).mean()
+
+                ## Loss origin
                 if args.snr_gamma is None:
-                    loss, _ = weighted_latent_mse(
-                        model_pred.float(),
-                        target.float(),
-                        mask_latent=mask_w_latent,              # mask đã là latent-res [B,1,lh,lw]
-                        masked_weight=masked_w,
-                        known_weight=known_w,
-                    )
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 else:
+                    # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
+                    # Since we predict the noise instead of x_0, the original formulation is slightly changed.
+                    # This is discussed in Section 4.2 of the same paper.
                     snr = compute_snr(timesteps)
                     mse_loss_weights = (
                         torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-                    )  # [B]
-
-                    _, loss_per_sample = weighted_latent_mse(
-                        model_pred.float(),
-                        target.float(),
-                        mask_latent=mask_w_latent,
-                        masked_weight=masked_w,
-                        known_weight=known_w,
                     )
-                    loss = (loss_per_sample * mse_loss_weights).mean()
+                    # We first calculate the original loss. Then we mean over the non-batch dimensions and
+                    # rebalance the sample-wise losses with their respective loss weights.
+                    # Finally, we take the mean of the rebalanced loss.
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+                    loss = loss.mean()
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
@@ -902,7 +922,7 @@ def main():
                 train_loss = 0.0
 
                 if accelerator.is_main_process:
-                    if global_step % args.checkpointing_steps == 0:
+                    if (global_step % args.checkpointing_steps == 0):
                         # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                         if args.checkpoints_total_limit is not None:
                             checkpoints = os.listdir(args.output_dir)

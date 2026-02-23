@@ -1,4 +1,3 @@
-CUDA_VISIBLE_DEVICES=1 \
 $(which python) -m accelerate.commands.launch \
 --config_file configs/acc.yaml \
 train_idm_pp1_v2.py \

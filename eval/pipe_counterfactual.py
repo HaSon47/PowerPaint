@@ -259,7 +259,7 @@ def infer_counterfactual_3(
     # chỉ main process mới save/log
     if accelerator is not None and (not accelerator.is_main_process):
         return None
-
+    pipe.set_progress_bar_config(disable=True)
     pipe.safety_checker = None
     device = next(pipe.unet.parameters()).device
 

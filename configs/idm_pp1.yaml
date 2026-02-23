@@ -1,8 +1,8 @@
-base_model_path: "/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting" 
-ppt1_checkpoint: "/mnt/disk2/hachi/checkpoints/ppt-v1"
+base_model_path: "/mnt/disk1/aiotlab/hachi/checkpoints/stable-diffusion-inpainting" 
+ppt1_checkpoint: "/mnt/disk1/aiotlab/hachi/checkpoints/ppt-v1"
 tracker_project_name: "idm_pp1_density_map"
 report_to: "tensorboard"
-output_dir: "/mnt/disk2/hachi/New_ouput_9"
+output_dir: "/mnt/disk1/aiotlab/hachi/Output/ConvIn+Down0_IDM_PP1_DensityMap_OriginLoss"
 
 # learnable task prompts
 task_prompt:
@@ -17,34 +17,34 @@ task_prompt:
     num_vectors_per_token: 10
 
 # training data
-train_root: "/mnt/disk2/hachi/data/train"
-density_root: "/mnt/disk2/hachi/data/gt_density_map_adaptive_384_VarV2"
+train_root: "/mnt/disk1/aiotlab/hachi/data/OBJ_INS_FSC/train"
+density_root: "/mnt/disk1/aiotlab/hachi/data/FSC_147/gt_density_map_adaptive_384_VarV2"
 
 # training hyper-parameters
-train_mode: "conv_in"
+train_mode: "conv_in+down0"
 num_train_epochs: 20
 lr_scheduler: "constant_with_warmup"
 lr_warmup_steps: 200
 learning_rate: 2.0e-4
 max_train_steps: 8e3            # max training steps
-train_batch_size: 4              # batch size per GPU
+train_batch_size: 8              # batch size per GPU
 by_bucket_sizes:
   - size: [512, 512]
-    value: 4
+    value: 8
   - size: [512, 768]
-    value: 2
+    value: 8
   - size: [512, 1024]
-    value: 2
+    value: 8
 dataloader_num_workers: 4
 gradient_accumulation_steps: 4
 gradient_checkpointing: true
 
-checkpointing_steps: 5
-validation_steps: 5
+checkpointing_steps: 500
+validation_steps: 500
 
 
 # validation data
-val_root: "/mnt/disk2/hachi/data/workdir/radish/hachi/OBJ_INS/phase2_V2/val"
+val_root: "/mnt/disk1/aiotlab/hachi/data/OBJ_INS_FSC/val"
 # validation_data:
 #   data_root: "/mnt/disk1/aiotlab/hachi/PowerPaint/validation/"
 #   cases:

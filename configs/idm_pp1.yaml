@@ -1,8 +1,8 @@
-base_model_path: "/mnt/disk2/hachi/checkpoints/stable-diffusion-inpainting" 
-ppt1_checkpoint: "/mnt/disk2/hachi/checkpoints/ppt-v1"
+base_model_path: "/mnt/disk1/aiotlab/hachi/checkpoints/stable-diffusion-inpainting" 
+ppt1_checkpoint: "/mnt/disk1/aiotlab/hachi/checkpoints/ppt-v1"
 tracker_project_name: "idm_pp1_density_map"
 report_to: "tensorboard"
-output_dir: "/mnt/disk2/hachi/Output/Finetune_IDM_PP1"
+output_dir: "/mnt/disk1/aiotlab/hachi/Output/Finetune_IDM_PP1"
 
 # learnable task prompts
 task_prompt:
@@ -17,7 +17,7 @@ task_prompt:
     num_vectors_per_token: 10
 
 # training data
-train_root: "/mnt/disk2/hachi/data/workdir/radish/hachi/OBJ_INS/phase2_V2/train"
+train_root: "/mnt/disk1/aiotlab/hachi/data/OBJ_INS_FSC/train"
 
 # training hyper-parameters
 train_mode: "unet"
@@ -33,7 +33,7 @@ by_bucket_sizes:
   - size: [512, 768]
     value: 4
   - size: [512, 1024]
-    value: 2
+    value: 4
 dataloader_num_workers: 4
 gradient_accumulation_steps: 4
 gradient_checkpointing: true
@@ -43,7 +43,7 @@ validation_steps: 500
 
 
 # validation data
-val_root: "/mnt/disk2/hachi/data/workdir/radish/hachi/OBJ_INS/phase2_V2/val"
+val_root: "/mnt/disk1/aiotlab/hachi/data/OBJ_INS_FSC/val"
 # validation_data:
 #   data_root: "/mnt/disk1/aiotlab/hachi/PowerPaint/validation/"
 #   cases:

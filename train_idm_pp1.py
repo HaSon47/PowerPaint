@@ -678,7 +678,7 @@ def main():
         num_workers=args.dataloader_num_workers,
     )
 
-    val_items = build_index_val('./val.txt', max_num=100)
+    val_items = build_index_val('./val_2.txt', max_num=100)
     # val_items = build_index(args.val_root, args.density_root, max_num=100)
     val_dataset = FSCDataset(val_items, pipeline=pipe, task_prompt=args.task_prompt, train=False)
     val_sampler = BucketBatchSampler(
